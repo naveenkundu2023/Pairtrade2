@@ -1,10 +1,10 @@
 """
-Pair Trading Dashboard - Streamlit App (IST Timezone + Mobile Shield v8)
-========================================================================
-- Exact IST Timezone Offset (+5:30 UTC calculation) for accurate header clock
-- Hidden Streamlit/GitHub header bars and menus for private clean look
-- Touch-scroll shield on Plotly charts to prevent mobile swipe disfigurement
-- Cross-device query param persistence for Google Sheets CSV link
+Pair Trading Dashboard - Streamlit App (Mobile Master v9)
+=========================================================
+- 100% Mobile Touch-Optimized Plotly Charts (zero touch distortion on scroll)
+- Responsive CSS media queries for mobile-friendly cards and tables
+- Exact IST Timezone Clock (+5:30 UTC)
+- Hidden Streamlit/GitHub headers & menus for clean private look
 """
 
 import streamlit as st
@@ -49,7 +49,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# HIDE STREAMLIT / GITHUB HEADERS & MENUS + DARK THEME
+# MOBILE-FRIENDLY CSS + HIDE HEADERS
 st.markdown("""
 <style>
     /* Hide Streamlit Header, GitHub icons, Main Menu, and Footer */
@@ -62,37 +62,45 @@ st.markdown("""
     .stApp { background-color: #0E1117; color: #E0E0E0; }
     
     .main-header {
-        font-size: 2.2rem; font-weight: 800;
+        font-size: 2.0rem; font-weight: 800;
         background: linear-gradient(90deg, #00E5FF, #76FF03, #FFEA00);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         margin-bottom: 0.1rem;
     }
-    .sub-header { font-size: 0.95rem; color: #90A4AE !important; margin-bottom: 1.0rem; }
+    .sub-header { font-size: 0.9rem; color: #90A4AE !important; margin-bottom: 1.0rem; }
     
     /* Metric Cards */
     [data-testid="stMetric"] {
-        background: #1A1F2E; border-radius: 10px; padding: 12px 16px;
+        background: #1A1F2E; border-radius: 10px; padding: 10px 14px;
         border-left: 4px solid #00E5FF; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
     }
-    [data-testid="stMetric"] label { color: #90CAF9 !important; font-size: 0.8rem !important; }
-    [data-testid="stMetric"] [data-testid="stMetricValue"] { color: #FFFFFF !important; font-weight: 700; }
+    [data-testid="stMetric"] label { color: #90CAF9 !important; font-size: 0.75rem !important; }
+    [data-testid="stMetric"] [data-testid="stMetricValue"] { color: #FFFFFF !important; font-weight: 700; font-size: 1.2rem !important; }
     
     /* Ratio Box */
     .ratio-box {
         background: #1A1F2E; border: 1px solid #37474F; border-radius: 10px;
-        padding: 14px 18px; margin: 8px 0 16px 0;
+        padding: 12px 14px; margin: 8px 0 16px 0;
+        overflow-x: auto;
     }
     .ratio-box table { width: 100%; border-collapse: collapse; color: #E0E0E0; }
-    .ratio-box th { background: #263238; color: #80D8FF; padding: 8px 12px; text-align: center; font-size: 0.85rem; }
-    .ratio-box td { padding: 7px 12px; text-align: center; border-bottom: 1px solid #37474F; font-size: 0.9rem; }
+    .ratio-box th { background: #263238; color: #80D8FF; padding: 6px 8px; text-align: center; font-size: 0.8rem; }
+    .ratio-box td { padding: 6px 8px; text-align: center; border-bottom: 1px solid #37474F; font-size: 0.85rem; }
     
     /* Divergence dots */
-    .dot-green { color: #00E676; font-size: 1.3rem; }
-    .dot-red   { color: #FF5252; font-size: 1.3rem; }
-    .dot-gray  { color: #78909C; font-size: 1.3rem; }
+    .dot-green { color: #00E676; font-size: 1.2rem; }
+    .dot-red   { color: #FF5252; font-size: 1.2rem; }
+    .dot-gray  { color: #78909C; font-size: 1.2rem; }
     
     [data-testid="stSidebar"] { background-color: #12161F; }
     [data-testid="stSidebar"] label { color: #E0E0E0 !important; font-weight: 600; }
+
+    /* Mobile Responsive Tweaks */
+    @media (max-width: 768px) {
+        .main-header { font-size: 1.5rem; }
+        .sub-header { font-size: 0.8rem; }
+        [data-testid="column"] { width: 100% !important; flex: 100% !important; min-width: 100% !important; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -674,12 +682,12 @@ k5.metric("Half-Life", f"{m['half_life']:.1f} d" if not np.isnan(m.get("half_lif
 action_bg = "#1B5E20" if "ENTER" in s["action"] else ("#F9A825" if "WATCH" in s["action"] else "#37474F")
 st.markdown(
     f"""
-    <div style="background:{action_bg};color:white;padding:18px;border-radius:12px;margin:12px 0;">
-        <h3 style="margin:0;color:white;">{s['action']} — Confidence {s['confidence']}%</h3>
-        <p style="margin:8px 0 0 0;font-size:1.1rem;">
+    <div style="background:{action_bg};color:white;padding:16px;border-radius:12px;margin:12px 0;">
+        <h3 style="margin:0;color:white;font-size:1.2rem;">{s['action']} — Confidence {s['confidence']}%</h3>
+        <p style="margin:8px 0 0 0;font-size:1.0rem;">
             <b>{p['s1']}</b> → <b>{s['leg1']}</b> &nbsp;&nbsp;|&nbsp;&nbsp; <b>{p['s2']}</b> → <b>{s['leg2']}</b>
         </p>
-        <p style="margin:8px 0 0 0;opacity:0.95;">{s['reason']}</p>
+        <p style="margin:8px 0 0 0;opacity:0.95;font-size:0.9rem;">{s['reason']}</p>
     </div>
     """,
     unsafe_allow_html=True
@@ -743,11 +751,11 @@ if show_charts and HAS_PLOTLY and not selected_res["hist"].empty:
     norm2 = hist["price2"] / hist["price2"].iloc[0] * 100
 
     fig = make_subplots(
-        rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.07,
+        rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.08,
         subplot_titles=(
             f"Normalized Prices — {p['s1']} vs {p['s2']} (Base=100)",
-            f"Ratio (Price1/Price2) | Mean={m['ratio_mean']:.4f} | 60D Max={m['ratio_max_60']:.4f} | 60D Min={m['ratio_min_60']:.4f}",
-            f"Z-Score Trend | Current Z={m['zscore']:.2f} | Entry Band=±{z_entry:.1f}"
+            f"Ratio (Price1/Price2) | Mean={m['ratio_mean']:.4f}",
+            f"Z-Score Trend | Current Z={m['zscore']:.2f}"
         ),
         row_heights=[0.35, 0.35, 0.30]
     )
@@ -765,19 +773,25 @@ if show_charts and HAS_PLOTLY and not selected_res["hist"].empty:
     fig.add_hline(y=-z_entry, line_dash="dash", line_color="#00E676", row=3, col=1)
 
     fig.update_layout(
-        height=750,
+        height=680,
         template="plotly_dark",
         paper_bgcolor="#0E1117",
         plot_bgcolor="#1A1F2E",
         showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02)
+        margin=dict(l=30, r=10, t=40, b=30),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, font=dict(size=10))
     )
-    # Mobile touch-scroll protection: disable scrollZoom so vertical swipe works smoothly
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-        config={'scrollZoom': False, 'staticPlot': False, 'responsive': True, 'doubleClick': 'reset', 'displayModeBar': False}
-    )
+    
+    # 100% Mobile Touch Shield Config: Prevents touch-scroll from disfiguring or squishing charts
+    mobile_config = {
+        'scrollZoom': False,
+        'dragmode': False,
+        'displayModeBar': False,
+        'responsive': True,
+        'doubleClick': 'reset',
+        'staticPlot': False
+    }
+    st.plotly_chart(fig, use_container_width=True, config=mobile_config)
 
 # 📊 HISTORICAL PAIR PERFORMANCE
 st.markdown("---")
