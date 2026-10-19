@@ -37,19 +37,19 @@ from scipy import stats
 HAS_SCIPY = True
 except ImportError:
 HAS_SCIPY = False
-
 try:
-import openpyxl
-HAS_OPENPYXL = True
+    import openpyxl
+    HAS_OPENPYXL = True
 except ImportError:
-HAS_OPENPYXL = False
+    HAS_OPENPYXL = False
 
-─────────────────────────────────────────────────────────────
-
-PAGE CONFIG + DARK THEME
-
-─────────────────────────────────────────────────────────────
-
+# PAGE CONFIG + DARK THEME
+st.set_page_config(
+    page_title="Pair Trade Dashboard",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 st.set_page_config(
 page_title="Pair Trade Dashboard",
 page_icon="📈",
