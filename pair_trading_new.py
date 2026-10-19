@@ -1,11 +1,10 @@
 """
-Pair Trading Dashboard - Streamlit App (Mobile & Desktop Optimized v4)
-======================================================================
-- Live updating execution clock
-- Mobile-friendly Plotly touch-scroll controls
-- Streamlined Signal Board color gradations (Dual Green / Dual Pink)
-- High-contrast sidebar & legible dropdown menus
-- Persistent URL saving via st.query_params
+Pair Trading Dashboard - Streamlit App (High-Contrast & Live Time v5)
+=====================================================================
+- Dynamic un-cached header clock (updates instantly on every refresh)
+- High-contrast Signal Board colors (Vibrant Green for Dual Buy, Crimson Red for Dual Exit)
+- Mobile touch-scroll protection on Plotly charts
+- Persistent Google Sheets CSV link saving
 """
 
 import streamlit as st
@@ -527,12 +526,12 @@ def historical_pair_stats(df: pd.DataFrame, z_entry: float = 1.5, lookback: int 
 excel_map, signal_status = load_live_signals(st.session_state["csv_url"])
 ALL_PAIRS = merge_excel_lots(DEFAULT_PAIRS, excel_map)
 
-# LIVE CLOCK EVALUATION (UPDATES ON EVERY RERUN)
-current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
+# UN-CACHED LIVE CLOCK TIMESTAMP
+live_clock_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
 
 # HEADER
 st.markdown('<p class="main-header">📈 Live Pair Trading Suite</p>', unsafe_allow_html=True)
-st.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {current_time_str}</p>', unsafe_allow_html=True)
+st.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {live_clock_now}</p>', unsafe_allow_html=True)
 st.caption(f"📂 {signal_status}")
 
 # SCAN PAIRS
@@ -592,16 +591,16 @@ if rows:
         dual = str(row["Dual Status"])
         if "ENTER" in act:
             if "DUAL" in dual:
-                # Deeper green for dual conviction
-                return ["background-color: #0D5C3A; color: #FFFFFF; font-weight: bold"] * len(row)
-            # Light green for single signal
-            return ["background-color: #1B4D3E; color: #FFFFFF; font-weight: bold"] * len(row)
+                # Vibrant bright green for dual conviction
+                return ["background-color: #00C853; color: #000000; font-weight: bold"] * len(row)
+            # Solid green for single signal
+            return ["background-color: #2E7D32; color: #FFFFFF; font-weight: bold"] * len(row)
         elif "EXIT" in act:
             if "DUAL" in dual:
-                # Deeper pink/red for dual exit
-                return ["background-color: #6B1222; color: #FFFFFF"] * len(row)
-            # Light pink for single exit
-            return ["background-color: #4A1C24; color: #FFFFFF"] * len(row)
+                # Vibrant crimson red for dual exit
+                return ["background-color: #D50000; color: #FFFFFF; font-weight: bold"] * len(row)
+            # Medium red for single exit
+            return ["background-color: #C62828; color: #FFFFFF"] * len(row)
         else:
             # Clean dark slate for neutral / watch
             return ["background-color: #1E293B; color: #E0E0E0"] * len(row)
@@ -762,7 +761,7 @@ if show_charts and HAS_PLOTLY and not selected_res["hist"].empty:
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02)
     )
-    # Mobile touch scroll protection: disable scrollZoom so vertical swipe works smoothly
+    # Touch-scroll protection for mobile screens
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': False})
 
 # 📊 HISTORICAL PAIR PERFORMANCE
