@@ -1,12 +1,11 @@
 """
-Pair Trading Dashboard - Streamlit App (Professional Suite v3)
-==============================================================
-- Persistent CSV URL saving across mobile & desktop via URL Query Params
-- Cleaned Streamlit UI with high-contrast dark theme & native selectbox contrast
-- Signal Board with Green (Enter), Pink (Exit), Neutral (Watch) row styling
-- Independent Deep Rationale & High-Conviction Entries list
-- 12-Month Simulated Backtest & Historical Trade Logs
-- 30D/60D Ratio Reference Levels, Cash Neutrality, Divergence Dots
+Pair Trading Dashboard - Streamlit App (Mobile & Desktop Optimized v4)
+======================================================================
+- Live updating execution clock
+- Mobile-friendly Plotly touch-scroll controls
+- Streamlined Signal Board color gradations (Dual Green / Dual Pink)
+- High-contrast sidebar & legible dropdown menus
+- Persistent URL saving via st.query_params
 """
 
 import streamlit as st
@@ -54,15 +53,14 @@ st.set_page_config(
 st.markdown("""
 <style>
     .stApp { background-color: #0E1117; color: #E0E0E0; }
-    h1, h2, h3, h4, h5, h6, p, label, span, div { color: #E8EAF0 !important; }
     
     .main-header {
-        font-size: 2.3rem; font-weight: 800;
+        font-size: 2.2rem; font-weight: 800;
         background: linear-gradient(90deg, #00E5FF, #76FF03, #FFEA00);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        margin-bottom: 0.15rem;
+        margin-bottom: 0.1rem;
     }
-    .sub-header { font-size: 0.95rem; color: #90A4AE !important; margin-bottom: 1.2rem; }
+    .sub-header { font-size: 0.95rem; color: #90A4AE !important; margin-bottom: 1.0rem; }
     
     /* Metric Cards */
     [data-testid="stMetric"] {
@@ -71,16 +69,6 @@ st.markdown("""
     }
     [data-testid="stMetric"] label { color: #90CAF9 !important; font-size: 0.8rem !important; }
     [data-testid="stMetric"] [data-testid="stMetricValue"] { color: #FFFFFF !important; font-weight: 700; }
-    
-    /* Signal badges */
-    .badge-confirm {
-        background: linear-gradient(135deg, #00B0FF, #01579B);
-        color: #fff; padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem;
-    }
-    .badge-excel {
-        background: linear-gradient(135deg, #AB47BC, #4A148C);
-        color: #fff; padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem;
-    }
     
     /* Ratio Box */
     .ratio-box {
@@ -92,15 +80,12 @@ st.markdown("""
     .ratio-box td { padding: 7px 12px; text-align: center; border-bottom: 1px solid #37474F; font-size: 0.9rem; }
     
     /* Divergence dots */
-    .dot-box { display: inline-block; text-align: center; margin: 0 8px; }
     .dot-green { color: #00E676; font-size: 1.3rem; }
     .dot-red   { color: #FF5252; font-size: 1.3rem; }
     .dot-gray  { color: #78909C; font-size: 1.3rem; }
-    .dot-val   { font-size: 0.75rem; color: #CBD5E1; }
-    .dot-date  { font-size: 0.70rem; color: #94A3B8; }
     
     [data-testid="stSidebar"] { background-color: #12161F; }
-    [data-testid="stSidebar"] * { color: #E0E0E0 !important; }
+    [data-testid="stSidebar"] label { color: #E0E0E0 !important; font-weight: 600; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -116,7 +101,7 @@ _CANDIDATES = [
     os.path.join(os.getcwd(), "PAIR TRADE -NEW (1).xlsx"),
 ]
 
-# TOP ~20 NSE PAIR UNIVERSE
+# TOP NSE PAIR UNIVERSE
 DEFAULT_PAIRS = [
     {"name": "ICICIBANK-HDFCBANK", "s1": "ICICIBANK.NS", "s2": "HDFCBANK.NS", "lot1": 700, "lot2": 550, "sector": "Banking", "excel_key": "ICICIBANK"},
     {"name": "AXISBANK-ICICIBANK", "s1": "AXISBANK.NS", "s2": "ICICIBANK.NS", "lot1": 625, "lot2": 700, "sector": "Banking", "excel_key": "AXISBANK"},
@@ -155,11 +140,11 @@ with st.sidebar:
         help="Paste published CSV link from Google Sheets SIGNAL tab."
     )
     
-    if st.button("💾 Save & Lock Link"):
+    if st.button("💾 Save & Lock Link", use_container_width=True):
         st.session_state["csv_url"] = url_input
         st.query_params["csv_url"] = url_input
         st.cache_data.clear()
-        st.success("Link saved permanently! It will auto-load on all devices.")
+        st.success("Link saved permanently!")
         st.rerun()
 
     st.markdown("---")
@@ -176,13 +161,12 @@ with st.sidebar:
     auto_refresh = st.checkbox("Auto-refresh every 60s", value=False)
     show_charts = st.checkbox("Show detailed charts", value=True)
 
-    if st.button("🔄 Refresh Data Now"):
+    if st.button("🔄 Refresh Data Now", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_live_signals(csv_url: str = ""):
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     excel_map = {}
 
     if csv_url.strip():
@@ -219,7 +203,7 @@ def load_live_signals(csv_url: str = ""):
                 except Exception:
                     continue
             if excel_map:
-                return excel_map, f"Loaded from Live Google Sheet CSV @ {ts}"
+                return excel_map, "Live Google Sheet CSV connected"
         except Exception as e:
             st.sidebar.warning(f"CSV URL Error: {e}")
 
@@ -271,7 +255,7 @@ def load_live_signals(csv_url: str = ""):
                         "excel_action": excel_action, "excel_buy_flag": str(excel_buy or ""),
                     }
             row += 3
-        return excel_map, f"Loaded from Local Excel ({os.path.basename(path)}) @ {ts}"
+        return excel_map, f"Local Excel ({os.path.basename(path)}) loaded"
     except Exception as e:
         return {}, f"Excel load error: {e}"
 
@@ -350,7 +334,6 @@ def compute_pair_metrics(df: pd.DataFrame, lookback: int = 60) -> dict:
     divergence = (ratio - ratio_sma20) / ratio_sma20
     last5_div = divergence.tail(5).tolist() if len(divergence) >= 5 else []
     last5_dates = [d.strftime("%d-%b") for d in divergence.tail(5).index] if len(divergence) >= 5 else []
-    last5_z = zscore.tail(5).tolist() if len(zscore) >= 5 else []
 
     return {
         "ratio": cur_ratio, "zscore": cur_z,
@@ -363,7 +346,7 @@ def compute_pair_metrics(df: pd.DataFrame, lookback: int = 60) -> dict:
         "ratio_avg_30": float(r30.mean()), "ratio_avg_60": float(r60.mean()),
         "ratio_mean": float(r60.mean()), "half_life": half_life,
         "ratio_series": ratio, "zscore_series": zscore,
-        "last5_div": last5_div, "last5_dates": last5_dates, "last5_z": last5_z,
+        "last5_div": last5_div, "last5_dates": last5_dates,
         "df": df,
     }
 
@@ -544,9 +527,12 @@ def historical_pair_stats(df: pd.DataFrame, z_entry: float = 1.5, lookback: int 
 excel_map, signal_status = load_live_signals(st.session_state["csv_url"])
 ALL_PAIRS = merge_excel_lots(DEFAULT_PAIRS, excel_map)
 
+# LIVE CLOCK EVALUATION (UPDATES ON EVERY RERUN)
+current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
+
 # HEADER
 st.markdown('<p class="main-header">📈 Live Pair Trading Suite</p>', unsafe_allow_html=True)
-st.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} IST</p>', unsafe_allow_html=True)
+st.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {current_time_str}</p>', unsafe_allow_html=True)
 st.caption(f"📂 {signal_status}")
 
 # SCAN PAIRS
@@ -603,11 +589,21 @@ if rows:
 
     def color_rows(row):
         act = str(row["Action"]).upper()
+        dual = str(row["Dual Status"])
         if "ENTER" in act:
-            return ["background-color: #1B5E20; color: #FFFFFF; font-weight: bold"] * len(row)
+            if "DUAL" in dual:
+                # Deeper green for dual conviction
+                return ["background-color: #0D5C3A; color: #FFFFFF; font-weight: bold"] * len(row)
+            # Light green for single signal
+            return ["background-color: #1B4D3E; color: #FFFFFF; font-weight: bold"] * len(row)
         elif "EXIT" in act:
+            if "DUAL" in dual:
+                # Deeper pink/red for dual exit
+                return ["background-color: #6B1222; color: #FFFFFF"] * len(row)
+            # Light pink for single exit
             return ["background-color: #4A1C24; color: #FFFFFF"] * len(row)
         else:
+            # Clean dark slate for neutral / watch
             return ["background-color: #1E293B; color: #E0E0E0"] * len(row)
 
     styled_df = df_signals.style.apply(color_rows, axis=1)
@@ -656,7 +652,6 @@ selected_res = next(r for r in results if r["pair"]["name"] == selected)
 m, s, pr, p = selected_res["metrics"], selected_res["signal"], selected_res["prices"], selected_res["pair"]
 lots = selected_res["lots_info"]
 hist_stats = selected_res["hist_stats"]
-excel_info = p.get("excel", {})
 
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Current Ratio", f"{m['ratio']:.4f}")
@@ -729,14 +724,8 @@ if m.get("last5_div") and m.get("last5_dates"):
         d = dates[idx]
         v = divs[idx]
         dot_cls = "dot-green" if v > 0.005 else ("dot-red" if v < -0.005 else "dot-gray")
-        dots_html.append(f"""
-        <div class="dot-box">
-            <div class="{dot_cls}">●</div>
-            <div class="dot-val">{v*100:+.2f}%</div>
-            <div class="dot-date">{d}</div>
-        </div>
-        """)
-    st.markdown(f"<div>{''.join(dots_html)}</div>", unsafe_allow_html=True)
+        dots_html.append(f'<span class="{dot_cls}">●</span> {d} ({v*100:+.2f}%)')
+    st.markdown(" &nbsp;&nbsp;&nbsp;&nbsp; ".join(dots_html), unsafe_allow_html=True)
 
 if show_charts and HAS_PLOTLY and not selected_res["hist"].empty:
     hist = selected_res["hist"]
@@ -745,7 +734,11 @@ if show_charts and HAS_PLOTLY and not selected_res["hist"].empty:
 
     fig = make_subplots(
         rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.07,
-        subplot_titles=(f"Normalized Prices — {p['s1']} vs {p['s2']}", "Ratio + Reference Bands", "Z-Score Trend"),
+        subplot_titles=(
+            f"Normalized Prices — {p['s1']} vs {p['s2']} (Base=100)",
+            f"Ratio (Price1/Price2) | Mean={m['ratio_mean']:.4f} | 60D Max={m['ratio_max_60']:.4f} | 60D Min={m['ratio_min_60']:.4f}",
+            f"Z-Score Trend | Current Z={m['zscore']:.2f} | Entry Band=±{z_entry:.1f}"
+        ),
         row_heights=[0.35, 0.35, 0.30]
     )
 
@@ -761,8 +754,16 @@ if show_charts and HAS_PLOTLY and not selected_res["hist"].empty:
     fig.add_hline(y=z_entry, line_dash="dash", line_color="#FF5252", row=3, col=1)
     fig.add_hline(y=-z_entry, line_dash="dash", line_color="#00E676", row=3, col=1)
 
-    fig.update_layout(height=750, template="plotly_dark", paper_bgcolor="#0E1117", plot_bgcolor="#1A1F2E")
-    st.plotly_chart(fig, use_container_width=True)
+    fig.update_layout(
+        height=750,
+        template="plotly_dark",
+        paper_bgcolor="#0E1117",
+        plot_bgcolor="#1A1F2E",
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02)
+    )
+    # Mobile touch scroll protection: disable scrollZoom so vertical swipe works smoothly
+    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': False})
 
 # 📊 HISTORICAL PAIR PERFORMANCE
 st.markdown("---")
