@@ -1,6 +1,6 @@
 """
-Pair Trading Dashboard - Streamlit App (Enhanced v2 + Live CSV Sync)
-
+Pair Trading Dashboard - Streamlit App (Full Enhanced Analytics v2)
+===================================================================
 Automated pair-trading signal dashboard with dual confirmation
 (Google Sheets Live CSV / Excel SIGNAL sheet + Independent analytics).
 """
@@ -52,24 +52,38 @@ st.markdown("""
     .stApp { background-color: #0E1117; color: #E0E0E0; }
     h1, h2, h3, h4, h5, h6, p, label, span, div { color: #E8EAF0 !important; }
     .main-header {
-        font-size: 2.2rem; font-weight: 800;
+        font-size: 2.3rem; font-weight: 800;
         background: linear-gradient(90deg, #00E5FF, #76FF03, #FFEA00);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        margin-bottom: 0.15rem;
     }
+    .sub-header { font-size: 0.95rem; color: #90A4AE !important; margin-bottom: 1.2rem; }
     [data-testid="stMetric"] {
         background: #1A1F2E; border-radius: 10px; padding: 12px 16px;
-        border-left: 4px solid #00E5FF;
+        border-left: 4px solid #00E5FF; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
     }
     [data-testid="stMetric"] label { color: #90CAF9 !important; font-size: 0.8rem !important; }
     [data-testid="stMetric"] [data-testid="stMetricValue"] { color: #FFFFFF !important; font-weight: 700; }
+    .badge-confirm {
+        background: linear-gradient(135deg, #00B0FF, #01579B);
+        color: #fff; padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem;
+    }
+    .badge-excel {
+        background: linear-gradient(135deg, #AB47BC, #4A148C);
+        color: #fff; padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem;
+    }
     .ratio-box {
         background: #1A1F2E; border: 1px solid #37474F; border-radius: 10px;
         padding: 14px 18px; margin: 8px 0 16px 0;
     }
     .ratio-box table { width: 100%; border-collapse: collapse; color: #E0E0E0; }
-    .ratio-box th { background: #263238; color: #80D8FF; padding: 8px 12px; text-align: center; }
-    .ratio-box td { padding: 7px 12px; text-align: center; border-bottom: 1px solid #37474F; }
+    .ratio-box th { background: #263238; color: #80D8FF; padding: 8px 12px; text-align: center; font-size: 0.85rem; }
+    .ratio-box td { padding: 7px 12px; text-align: center; border-bottom: 1px solid #37474F; font-size: 0.9rem; }
+    .dot-green { color: #00E676; font-size: 1.3rem; }
+    .dot-red   { color: #FF5252; font-size: 1.3rem; }
+    .dot-gray  { color: #78909C; font-size: 1.3rem; }
     [data-testid="stSidebar"] { background-color: #12161F; }
+    [data-testid="stSidebar"] * { color: #E0E0E0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -124,7 +138,7 @@ def load_live_signals(csv_url: str = ""):
                         continue
                     s1 = s1_raw.replace("NSE:", "").replace("INDEXNSE:", "").replace("MCX:", "").strip()
                     s2 = s2_raw.replace("NSE:", "").replace("INDEXNSE:", "").replace("MCX:", "").strip()
-                    
+
                     lot1 = int(float(row1.iloc[0])) if pd.notnull(row1.iloc[0]) else 0
                     lot2 = int(float(row2.iloc[0])) if pd.notnull(row2.iloc[0]) else 0
 
@@ -295,33 +309,39 @@ def compute_pair_metrics(df: pd.DataFrame, lookback: int = 60) -> dict:
 
 def generate_signal(metrics: dict, z_entry: float = 1.5, z_exit: float = 0.5) -> dict:
     if not metrics:
-        return {"action": "NO DATA", "leg1": "—", "leg2": "—", "confidence": 0, "reason": "Insufficient data"}
+        return {"action": "NO DATA", "leg1": "—", "leg2": "—", "confidence": 0, "reason": "Insufficient data", "deep_reason": ""}
 
     z = metrics["zscore"]
     corr = metrics.get("corr_30") or metrics.get("corr_60") or 0
     abs_z = abs(z)
     corr_ok = abs(corr) >= 0.5 if not np.isnan(corr) else False
 
+    deep = ""
     if abs_z >= z_entry and corr_ok:
         if z > 0:
             action, leg1, leg2 = "ENTER PAIR", "SELL", "BUY"
-            reason = f"Z-score +{z:.2f} (ratio high). Mean-reversion → Sell {leg1} / Buy {leg2}"
+            reason = f"Z-score +{z:.2f} (ratio stretched high). Expect mean-reversion → Sell leg1 / Buy leg2"
+            deep = f"The price ratio is {abs_z:.1f} standard deviations above its 60-day mean. 30-day correlation is {corr:.2f}. Selling the richer leg and buying the cheaper leg captures reversion."
         else:
             action, leg1, leg2 = "ENTER PAIR", "BUY", "SELL"
-            reason = f"Z-score {z:.2f} (ratio low). Mean-reversion → Buy {leg1} / Sell {leg2}"
+            reason = f"Z-score {z:.2f} (ratio stretched low). Expect mean-reversion → Buy leg1 / Sell leg2"
+            deep = f"The price ratio is {abs_z:.1f} standard deviations below its rolling mean. Correlation ({corr:.2f}) supports pair quality. Buying cheap leg and shorting rich leg is optimal."
         confidence = min(95, int(40 + abs_z * 15 + (abs(corr) * 20)))
     elif abs_z <= z_exit:
         action, leg1, leg2 = "EXIT / HOLD", "CLOSE", "CLOSE"
-        reason = f"Z-score near mean ({z:.2f}). Take profit zone"
+        reason = f"Z-score near mean ({z:.2f}). No edge / take-profit zone"
+        deep = "Ratio is close to its average; edge has largely been realized or never appeared."
         confidence = 30
     else:
         action, leg1, leg2 = "WATCH", "—", "—"
-        reason = f"Z-score {z:.2f} in neutral zone."
+        reason = f"Z-score {z:.2f} inside neutral band. Waiting for stretch"
+        deep = "Wait for |Z| to exceed entry threshold before committing capital."
         confidence = 20
 
     return {
         "action": action, "leg1": leg1, "leg2": leg2,
-        "confidence": confidence, "reason": reason, "z": z, "corr": corr
+        "confidence": confidence, "reason": reason, "deep_reason": deep,
+        "z": z, "corr": corr
     }
 
 def recommend_cash_neutral_lots(metrics: dict, lot1: int, lot2: int) -> dict:
@@ -330,8 +350,8 @@ def recommend_cash_neutral_lots(metrics: dict, lot1: int, lot2: int) -> dict:
     p1, p2 = metrics["price1"], metrics["price2"]
     v1, v2 = p1 * lot1, p2 * lot2
     best = None
-    for n1 in range(1, 5):
-        for n2 in range(1, 5):
+    for n1 in range(1, 6):
+        for n2 in range(1, 6):
             diff = abs(n1 * v1 - n2 * v2)
             pct = diff / max(n1 * v1, n2 * v2) * 100
             if best is None or pct < best["imbalance_pct"]:
@@ -342,12 +362,134 @@ def recommend_cash_neutral_lots(metrics: dict, lot1: int, lot2: int) -> dict:
                     "imbalance": round(n1 * v1 - n2 * v2, 0),
                     "imbalance_pct": round(pct, 2),
                 }
+    best["single_value1"] = round(v1, 0)
+    best["single_value2"] = round(v2, 0)
+    best["single_imbalance"] = round(v1 - v2, 0)
     best["single_imbalance_pct"] = round(abs(v1 - v2) / max(v1, v2) * 100, 2)
     return best
 
+def profit_potential(metrics: dict, signal: dict, lots_info: dict) -> list:
+    if not metrics or not lots_info:
+        return []
+    p1, p2 = metrics["price1"], metrics["price2"]
+    cur_r = metrics["ratio"]
+    targets = [
+        ("Mean (60D avg)", metrics["ratio_mean"]),
+        ("30D Avg", metrics["ratio_avg_30"]),
+        ("Halfway to mean", (cur_r + metrics["ratio_mean"]) / 2),
+        ("30D Min", metrics["ratio_min_30"]),
+        ("30D Max", metrics["ratio_max_30"]),
+    ]
+    sh1, sh2 = lots_info.get("shares1", 0), lots_info.get("shares2", 0)
+    if sh1 == 0: return []
+
+    rows = []
+    direction = signal.get("leg1", "")
+    for label, tgt_r in targets:
+        if tgt_r <= 0 or cur_r <= 0: continue
+        p1_new_a = tgt_r * p2
+        p2_new_b = p1 / tgt_r
+
+        if direction == "SELL":
+            pnl = (sh1 * (p1 - p1_new_a) + sh2 * (p2_new_b - p2)) / 2
+        elif direction == "BUY":
+            pnl = (sh1 * (p1_new_a - p1) + sh2 * (p2 - p2_new_b)) / 2
+        else: pnl = 0
+
+        rows.append({
+            "Target": label, "Target Ratio": round(tgt_r, 4),
+            "Ratio Move %": round(abs(tgt_r - cur_r) / cur_r * 100, 2),
+            "Est. P&L (₹)": round(pnl, 0)
+        })
+    return rows
+
+def recommend_prices(metrics: dict, signal: dict) -> dict:
+    if not metrics or signal["action"] not in ("ENTER PAIR",):
+        return {}
+    z = metrics["zscore"]
+    p1, p2 = metrics["price1"], metrics["price2"]
+    ratio = metrics["ratio"]
+    mean_r = metrics["ratio_mean"]
+    target_ratio = mean_r
+    stop_ratio = metrics["ratio_max_60"] * 1.02 if z > 0 else metrics["ratio_min_60"] * 0.98
+
+    if signal["leg1"] == "SELL":
+        entry1, target1 = p1, p1 * (target_ratio / ratio) * 0.98
+        stop1 = p1 * (stop_ratio / ratio) * 1.01
+        entry2, target2 = p2, p2 * (ratio / target_ratio) * 1.02
+        stop2 = p2 * (ratio / stop_ratio) * 0.99
+    else:
+        entry1, target1 = p1, p1 * (target_ratio / ratio) * 1.02
+        stop1 = p1 * (stop_ratio / ratio) * 0.99
+        entry2, target2 = p2, p2 * (ratio / target_ratio) * 0.98
+        stop2 = p2 * (ratio / stop_ratio) * 1.01
+
+    return {
+        "entry1": round(entry1, 2), "target1": round(target1, 2), "stop1": round(stop1, 2),
+        "entry2": round(entry2, 2), "target2": round(target2, 2), "stop2": round(stop2, 2),
+        "support1": round(metrics["support1"], 2), "resist1": round(metrics["resist1"], 2),
+        "support2": round(metrics["support2"], 2), "resist2": round(metrics["resist2"], 2),
+    }
+
+def historical_pair_stats(df: pd.DataFrame, z_entry: float = 1.5, lookback: int = 60) -> dict:
+    if df.empty or len(df) < lookback + 20:
+        return {"trades": 0, "wins": 0, "win_rate": None, "avg_pnl_pct": None, "details": []}
+
+    ratio = df["price1"] / df["price2"]
+    rmean = ratio.rolling(lookback).mean()
+    rstd = ratio.rolling(lookback).std()
+    z = (ratio - rmean) / rstd
+
+    trades = []
+    i = lookback
+    while i < len(z) - 5:
+        zi = z.iloc[i]
+        if np.isnan(zi):
+            i += 1
+            continue
+        if abs(zi) >= z_entry:
+            entry_ratio = ratio.iloc[i]
+            entry_z = zi
+            exit_i = None
+            for j in range(i + 1, min(i + 31, len(z))):
+                if abs(z.iloc[j]) <= 0.5:
+                    exit_i = j
+                    break
+            if exit_i is None:
+                exit_i = min(i + 30, len(z) - 1)
+            exit_ratio = ratio.iloc[exit_i]
+            pnl_pct = (entry_ratio - exit_ratio) / entry_ratio * 100 if entry_z > 0 else (exit_ratio - entry_ratio) / entry_ratio * 100
+            trades.append({
+                "entry_date": z.index[i].strftime("%Y-%m-%d"),
+                "exit_date": z.index[exit_i].strftime("%Y-%m-%d"),
+                "entry_z": round(entry_z, 2),
+                "pnl_pct": round(pnl_pct, 2),
+                "win": pnl_pct > 0,
+            })
+            i = exit_i + 1
+        else:
+            i += 1
+
+    if not trades:
+        return {"trades": 0, "wins": 0, "win_rate": None, "avg_pnl_pct": None, "details": []}
+    wins = sum(1 for t in trades if t["win"])
+    return {
+        "trades": len(trades), "wins": wins,
+        "win_rate": round(wins / len(trades) * 100, 1),
+        "avg_pnl_pct": round(np.mean([t["pnl_pct"] for t in trades]), 2),
+        "details": trades[-12:],
+    }
+
+# SIDEBAR (Persisted Session URL)
+if "csv_url" not in st.session_state:
+    st.session_state["csv_url"] = ""
+
 with st.sidebar:
     st.markdown("## ⚙️ Controls")
-    csv_url = st.text_input("Google Sheets Published CSV URL:", value="", key="csv_url_key", help="Paste published CSV link from Google Sheets SIGNAL tab")
+    csv_input = st.text_input("Google Sheets Published CSV URL:", value=st.session_state["csv_url"], help="Paste published CSV link from Google Sheets SIGNAL tab")
+    if csv_input != st.session_state["csv_url"]:
+        st.session_state["csv_url"] = csv_input
+
     st.markdown("---")
     z_entry = st.slider("Z-score Entry Threshold", 1.0, 3.0, 1.5, 0.1)
     z_exit = st.slider("Z-score Exit Threshold", 0.1, 1.5, 0.5, 0.1)
@@ -366,12 +508,12 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-excel_map, signal_status = load_live_signals(csv_url)
+excel_map, signal_status = load_live_signals(st.session_state["csv_url"])
 ALL_PAIRS = merge_excel_lots(DEFAULT_PAIRS, excel_map)
 
 st.markdown('<p class="main-header">📈 Live Pair Trading Dashboard</p>', unsafe_allow_html=True)
-st.markdown(f'Dual Confirmation Analytics • {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} IST', unsafe_allow_html=True)
-st.caption(f"📂 Status: {signal_status}")
+st.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} IST</p>', unsafe_allow_html=True)
+st.caption(f"📂 {signal_status}")
 
 pairs_to_scan = [p for p in ALL_PAIRS if p["sector"] in sector_filter]
 progress = st.progress(0, text="Fetching market data...")
@@ -382,11 +524,13 @@ for i, pair in enumerate(pairs_to_scan):
     hist = fetch_pair_history(pair["s1"], pair["s2"], period="1y")
     metrics = compute_pair_metrics(hist, lookback=lookback)
     signal = generate_signal(metrics, z_entry=z_entry, z_exit=z_exit)
+    prices = recommend_prices(metrics, signal)
     lots_info = recommend_cash_neutral_lots(metrics, pair["lot1"], pair["lot2"]) if metrics else {}
+    hist_stats = historical_pair_stats(hist, z_entry=z_entry, lookback=lookback) if not hist.empty else {}
 
     results.append({
-        "pair": pair, "metrics": metrics, "signal": signal,
-        "lots_info": lots_info, "hist": hist
+        "pair": pair, "metrics": metrics, "signal": signal, "prices": prices,
+        "lots_info": lots_info, "hist_stats": hist_stats, "hist": hist
     })
 
 progress.empty()
@@ -396,7 +540,8 @@ rows = []
 for r in results:
     m, s, p = r["metrics"], r["signal"], r["pair"]
     if not m: continue
-    excel_act = p.get("excel", {}).get("excel_action", "—")
+    excel_info = p.get("excel", {})
+    excel_act = excel_info.get("excel_action", "—")
 
     dual = "—"
     if "ENTER" in s["action"] and excel_act in ("BUY SIGNAL", "PAIR ENTRY"):
@@ -413,32 +558,41 @@ for r in results:
         "Ratio": round(m["ratio"], 4), "Z-Score": round(m["zscore"], 2),
         "Corr30": round(m["corr_30"], 2) if not np.isnan(m["corr_30"]) else "—",
         "Action": s["action"], "Leg1": s["leg1"], "Leg2": s["leg2"],
-        "Sheet": excel_act, "Dual": dual
+        "Sheet": excel_act, "Dual": dual,
+        "HalfLife": round(m["half_life"], 1) if not np.isnan(m.get("half_life", np.nan)) else "—",
     })
 
 if rows:
     df_signals = pd.DataFrame(rows)
     st.dataframe(df_signals, use_container_width=True, height=500)
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Pairs Scanned", len(rows))
-c2.metric("🟢 Active Signals", sum(1 for r in rows if "ENTER" in r["Action"]))
-c3.metric("✅ Dual Confirmed", sum(1 for r in rows if "DUAL" in r["Dual"]))
-c4.metric("Avg |Z-Score|", round(np.mean([abs(r["Z-Score"]) for r in rows]), 2) if rows else 0)
+c2.metric("🟢 Enter Signals", sum(1 for r in rows if "ENTER" in r["Action"]))
+c3.metric("✅ Dual Confirm", sum(1 for r in rows if "DUAL" in r["Dual"]))
+c4.metric("🟡 Watchlist", sum(1 for r in rows if "WATCH" in r["Action"]))
+c5.metric("Avg |Z|", round(np.mean([abs(r["Z-Score"]) for r in rows]), 2) if rows else 0)
 
 st.markdown("---")
 st.subheader("🔍 Pair Deep-Dive Analysis")
-selected = st.selectbox("Select Pair", [r["pair"]["name"] for r in results if r["metrics"]])
+selected = st.selectbox("Select Pair for Detailed Analysis", [r["pair"]["name"] for r in results if r["metrics"]])
 selected_res = next(r for r in results if r["pair"]["name"] == selected)
 
-m, s, p = selected_res["metrics"], selected_res["signal"], selected_res["pair"]
+m, s, pr, p = selected_res["metrics"], selected_res["signal"], selected_res["prices"], selected_res["pair"]
 lots = selected_res["lots_info"]
+hist_stats = selected_res["hist_stats"]
+excel_info = p.get("excel", {})
 
-k1, k2, k3, k4 = st.columns(4)
+k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Current Ratio", f"{m['ratio']:.4f}")
 k2.metric("Z-Score", f"{m['zscore']:.2f}")
-k3.metric("30D Correlation", f"{m['corr_30']:.2f}" if not np.isnan(m["corr_30"]) else "—")
-k4.metric("Half-Life", f"{m['half_life']:.1f} days" if not np.isnan(m.get("half_life", np.nan)) else "—")
+k3.metric("30D Corr", f"{m['corr_30']:.2f}" if not np.isnan(m["corr_30"]) else "—")
+k4.metric("60D Corr", f"{m['corr_60']:.2f}" if not np.isnan(m["corr_60"]) else "—")
+k5.metric("Half-Life", f"{m['half_life']:.1f} d" if not np.isnan(m.get("half_life", np.nan)) else "—")
+
+if s.get("deep_reason"):
+    st.markdown("#### 🧠 Independent Deep Rational")
+    st.info(s["deep_reason"])
 
 st.markdown("#### 📐 Ratio Reference Levels")
 st.markdown(f"""
@@ -455,21 +609,75 @@ st.markdown(f"""
 
 if lots:
     st.markdown("#### 📦 Recommended Cash-Neutral Lot Sizes")
-    st.write(f"Recommended Multiples: **{lots['lots1']}** x {p['s1']} ({lots['shares1']} shares) vs **{lots['lots2']}** x {p['s2']} ({lots['shares2']} shares)")
-    st.caption(f"Position Value Imbalance: ₹{lots['imbalance']:,.0f} ({lots['imbalance_pct']}%)")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.write(f"**Multi-Lot Recommendation:** Use **{lots['lots1']} x lot1** ({lots['shares1']} shares) of {p['s1']} vs **{lots['lots2']} x lot2** ({lots['shares2']} shares) of {p['s2']}")
+    with c2:
+        st.write(f"Position Imbalance: ₹{lots['imbalance']:,.0f} ({lots['imbalance_pct']}%)")
+
+pnl_rows = profit_potential(m, s, lots)
+if pnl_rows:
+    st.markdown("#### 💰 Profit Potential Grid")
+    st.dataframe(pd.DataFrame(pnl_rows), use_container_width=True, hide_index=True)
+
+if pr:
+    st.markdown("#### 🎯 Suggested Entry / Target / Stop Levels")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**{p['s1']}** (Lot {p['lot1']})")
+        st.write(f"Entry: {pr['entry1']} | Target: {pr['target1']} | Stop: {pr['stop1']} | Support: {pr['support1']} | Resistance: {pr['resist1']}")
+    with c2:
+        st.markdown(f"**{p['s2']}** (Lot {p['lot2']})")
+        st.write(f"Entry: {pr['entry2']} | Target: {pr['target2']} | Stop: {pr['stop2']} | Support: {pr['support2']} | Resistance: {pr['resist2']}")
+
+st.markdown("#### 📅 Last 5 Trading Days — Divergence Trend")
+if m.get("last5_div") and m.get("last5_dates"):
+    dots_html = []
+    for d, div in zip(m["last5_dates"], m["last5_div"]):
+        cls = "dot-green" if div > 0.005 else ("dot-red" if div < -0.005 else "dot-gray")
+        dots_html.append(f'<span class="{cls}" title="{d}: {div:.4f}">●</span> {d}')
+    st.markdown(" &nbsp;&nbsp; ".join(dots_html), unsafe_allow_html=True)
 
 if show_charts and HAS_PLOTLY and not selected_res["hist"].empty:
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, subplot_titles=("Ratio & Moving Reference Bands", "Z-Score Trend"))
+    hist = selected_res["hist"]
+    norm1 = hist["price1"] / hist["price1"].iloc[0] * 100
+    norm2 = hist["price2"] / hist["price2"].iloc[0] * 100
 
-    fig.add_trace(go.Scatter(x=m["ratio_series"].index, y=m["ratio_series"], name="Ratio", line=dict(color="#00E5FF")), row=1, col=1)
-    fig.add_hline(y=m["ratio_mean"], line_dash="dash", line_color="#FFEA00", row=1, col=1)
+    fig = make_subplots(
+        rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.07,
+        subplot_titles=(f"Normalized Prices — {p['s1']} vs {p['s2']}", "Ratio + Reference Bands", "Z-Score Trend"),
+        row_heights=[0.35, 0.35, 0.30]
+    )
 
-    fig.add_trace(go.Scatter(x=m["zscore_series"].index, y=m["zscore_series"], name="Z-Score", line=dict(color="#E040FB")), row=2, col=1)
-    fig.add_hline(y=z_entry, line_dash="dash", line_color="#FF5252", row=2, col=1)
-    fig.add_hline(y=-z_entry, line_dash="dash", line_color="#00E676", row=2, col=1)
+    fig.add_trace(go.Scatter(x=hist.index, y=norm1, name=p["s1"], line=dict(color="#00E5FF")), row=1, col=1)
+    fig.add_trace(go.Scatter(x=hist.index, y=norm2, name=p["s2"], line=dict(color="#FF5252")), row=1, col=1)
 
-    fig.update_layout(height=500, template="plotly_dark", paper_bgcolor="#0E1117", plot_bgcolor="#1A1F2E")
+    fig.add_trace(go.Scatter(x=m["ratio_series"].index, y=m["ratio_series"], name="Ratio", line=dict(color="#69F0AE")), row=2, col=1)
+    fig.add_hline(y=m["ratio_mean"], line_dash="dash", line_color="#FFEA00", row=2, col=1)
+
+    fig.add_trace(go.Scatter(x=m["zscore_series"].index, y=m["zscore_series"], name="Z-Score", line=dict(color="#E040FB")), row=3, col=1)
+    fig.add_hline(y=z_entry, line_dash="dash", line_color="#FF5252", row=3, col=1)
+    fig.add_hline(y=-z_entry, line_dash="dash", line_color="#00E676", row=3, col=1)
+
+    fig.update_layout(height=750, template="plotly_dark", paper_bgcolor="#0E1117", plot_bgcolor="#1A1F2E")
     st.plotly_chart(fig, use_container_width=True)
+
+st.markdown("---")
+st.subheader("📊 Historical Pair Performance (Simulated — Last ~12 Months)")
+hist_rows = []
+for r in results:
+    hs = r.get("hist_stats") or {}
+    if hs.get("trades", 0) > 0:
+        hist_rows.append({
+            "Pair": r["pair"]["name"], "Opportunities": hs["trades"],
+            "Wins": hs["wins"], "Win Rate %": hs["win_rate"], "Avg P&L %": hs["avg_pnl_pct"]
+        })
+
+if hist_rows:
+    st.dataframe(pd.DataFrame(hist_rows), use_container_width=True, hide_index=True)
+    if hist_stats.get("details"):
+        st.markdown(f"**Recent simulated trades for {selected}**")
+        st.dataframe(pd.DataFrame(hist_stats["details"]), use_container_width=True, hide_index=True)
 
 if auto_refresh:
     time.sleep(60)
