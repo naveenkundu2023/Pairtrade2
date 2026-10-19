@@ -1,17 +1,16 @@
 """
-Pair Trading Dashboard - Streamlit App (Dynamic Live Clock v7)
-=============================================================
-- Real-time dynamic live clock container (always reflects current second)
-- Cache-busting live Google Sheets CSV fetch (forces fresh data pull on every refresh)
-- Clean neutral rows (no background color on watch/hold rows)
-- High-contrast signal row coloring (Green for Buy, Red for Exit)
-- Mobile-optimized touch-scroll Plotly charts
+Pair Trading Dashboard - Streamlit App (IST Timezone + Mobile Shield v8)
+========================================================================
+- Exact IST Timezone Offset (+5:30 UTC calculation) for accurate header clock
+- Hidden Streamlit/GitHub header bars and menus for private clean look
+- Touch-scroll shield on Plotly charts to prevent mobile swipe disfigurement
+- Cross-device query param persistence for Google Sheets CSV link
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import time
 import os
 import warnings
@@ -42,7 +41,7 @@ try:
 except ImportError:
     HAS_OPENPYXL = False
 
-# PAGE CONFIG + DARK THEME
+# PAGE CONFIG
 st.set_page_config(
     page_title="Pair Trade Dashboard",
     page_icon="📈",
@@ -50,8 +49,16 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# HIDE STREAMLIT / GITHUB HEADERS & MENUS + DARK THEME
 st.markdown("""
 <style>
+    /* Hide Streamlit Header, GitHub icons, Main Menu, and Footer */
+    #MainMenu {visibility: hidden !important;}
+    header {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
+    [data-testid="stHeader"] {display: none !important;}
+    .viewerBadge_container__1QS1n {display: none !important;}
+    
     .stApp { background-color: #0E1117; color: #E0E0E0; }
     
     .main-header {
@@ -206,7 +213,7 @@ def load_live_signals(csv_url: str = ""):
                 except Exception:
                     continue
             if excel_map:
-                return excel_map, f"Live Google Sheet CSV freshly fetched @ {datetime.now().strftime('%H:%M:%S')}"
+                return excel_map, "Live Google Sheet CSV connected & active"
         except Exception as e:
             st.sidebar.warning(f"CSV URL Error: {e}")
 
@@ -217,7 +224,7 @@ def load_live_signals(csv_url: str = ""):
             path = c
             break
     if not path or not HAS_OPENPYXL:
-        return {}, "No CSV or local Excel found – using built-in lot defaults"
+        return {}, "Using default pair definitions (Paste CSV link in sidebar to sync live sheet)"
 
     try:
         wb = openpyxl.load_workbook(path, data_only=True)
@@ -258,7 +265,7 @@ def load_live_signals(csv_url: str = ""):
                         "excel_action": excel_action, "excel_buy_flag": str(excel_buy or ""),
                     }
             row += 3
-        return excel_map, f"Local Excel ({os.path.basename(path)}) loaded @ {datetime.now().strftime('%H:%M:%S')}"
+        return excel_map, f"Local Excel ({os.path.basename(path)}) loaded"
     except Exception as e:
         return {}, f"Excel load error: {e}"
 
@@ -533,12 +540,15 @@ ALL_PAIRS = merge_excel_lots(DEFAULT_PAIRS, excel_map)
 # HEADER
 st.markdown('<p class="main-header">📈 Live Pair Trading Suite</p>', unsafe_allow_html=True)
 
-# LIVE DYNAMIC CLOCK PLACEHOLDER (UPDATES INSTANTLY ON EVERY REFRESH)
-live_clock_placeholder = st.empty()
-live_clock_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
-live_clock_placeholder.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {live_clock_now}</p>', unsafe_allow_html=True)
+# EXACT IST TIME CONVERSION (+5h 30m OFFSET FROM UTC)
+utc_now = datetime.now(timezone.utc)
+ist_now = utc_now + timedelta(hours=5, minutes=30)
+live_clock_ist = ist_now.strftime("%Y-%m-%d %H:%M:%S IST")
 
-st.caption(f"📂 {signal_status}")
+live_clock_placeholder = st.empty()
+live_clock_placeholder.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {live_clock_ist}</p>', unsafe_allow_html=True)
+
+st.caption(f"📂 Status: {signal_status}")
 
 # SCAN PAIRS
 pairs_to_scan = [p for p in ALL_PAIRS if p["sector"] in sector_filter]
@@ -604,7 +614,6 @@ if rows:
                 return ["background-color: #D50000; color: #FFFFFF; font-weight: bold"] * len(row)
             return ["background-color: #C62828; color: #FFFFFF"] * len(row)
         else:
-            # NO COLOR FOR NEUTRAL / WATCH ROWS (Transparent / Default Table Background)
             return [""] * len(row)
 
     styled_df = df_signals.style.apply(color_rows, axis=1)
@@ -763,7 +772,12 @@ if show_charts and HAS_PLOTLY and not selected_res["hist"].empty:
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02)
     )
-    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': False})
+    # Mobile touch-scroll protection: disable scrollZoom so vertical swipe works smoothly
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={'scrollZoom': False, 'staticPlot': False, 'responsive': True, 'doubleClick': 'reset', 'displayModeBar': False}
+    )
 
 # 📊 HISTORICAL PAIR PERFORMANCE
 st.markdown("---")
