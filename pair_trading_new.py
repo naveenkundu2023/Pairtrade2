@@ -1,9 +1,9 @@
 """
-Pair Trading Dashboard - Streamlit App (Fully Dynamic & Clean v6)
-=================================================================
-- Real-time un-cached live clock evaluation on every page load
+Pair Trading Dashboard - Streamlit App (Dynamic Live Clock v7)
+=============================================================
+- Real-time dynamic live clock container (always reflects current second)
 - Cache-busting live Google Sheets CSV fetch (forces fresh data pull on every refresh)
-- Clean neutral rows (no navy blue background on watch/hold rows)
+- Clean neutral rows (no background color on watch/hold rows)
 - High-contrast signal row coloring (Green for Buy, Red for Exit)
 - Mobile-optimized touch-scroll Plotly charts
 """
@@ -171,7 +171,6 @@ def load_live_signals(csv_url: str = ""):
 
     if csv_url.strip():
         try:
-            # Append cache-busting timestamp to force fresh fetch from Google Sheets on every refresh
             sep = "&" if "?" in csv_url else "?"
             fetch_url = f"{csv_url}{sep}t={time.time()}"
             df = pd.read_csv(fetch_url)
@@ -207,7 +206,7 @@ def load_live_signals(csv_url: str = ""):
                 except Exception:
                     continue
             if excel_map:
-                return excel_map, "Live Google Sheet CSV connected & freshly fetched"
+                return excel_map, f"Live Google Sheet CSV freshly fetched @ {datetime.now().strftime('%H:%M:%S')}"
         except Exception as e:
             st.sidebar.warning(f"CSV URL Error: {e}")
 
@@ -259,7 +258,7 @@ def load_live_signals(csv_url: str = ""):
                         "excel_action": excel_action, "excel_buy_flag": str(excel_buy or ""),
                     }
             row += 3
-        return excel_map, f"Local Excel ({os.path.basename(path)}) loaded"
+        return excel_map, f"Local Excel ({os.path.basename(path)}) loaded @ {datetime.now().strftime('%H:%M:%S')}"
     except Exception as e:
         return {}, f"Excel load error: {e}"
 
@@ -531,12 +530,14 @@ def historical_pair_stats(df: pd.DataFrame, z_entry: float = 1.5, lookback: int 
 excel_map, signal_status = load_live_signals(st.session_state["csv_url"])
 ALL_PAIRS = merge_excel_lots(DEFAULT_PAIRS, excel_map)
 
-# UN-CACHED LIVE CLOCK EVALUATION (ALWAYS SHOWS CURRENT REAL-TIME SECONDS)
-live_clock_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
-
 # HEADER
 st.markdown('<p class="main-header">📈 Live Pair Trading Suite</p>', unsafe_allow_html=True)
-st.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {live_clock_now}</p>', unsafe_allow_html=True)
+
+# LIVE DYNAMIC CLOCK PLACEHOLDER (UPDATES INSTANTLY ON EVERY REFRESH)
+live_clock_placeholder = st.empty()
+live_clock_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
+live_clock_placeholder.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {live_clock_now}</p>', unsafe_allow_html=True)
+
 st.caption(f"📂 {signal_status}")
 
 # SCAN PAIRS
@@ -596,15 +597,11 @@ if rows:
         dual = str(row["Dual Status"])
         if "ENTER" in act:
             if "DUAL" in dual:
-                # Vibrant bright green for dual conviction
                 return ["background-color: #00C853; color: #000000; font-weight: bold"] * len(row)
-            # Solid green for single signal
             return ["background-color: #2E7D32; color: #FFFFFF; font-weight: bold"] * len(row)
         elif "EXIT" in act:
             if "DUAL" in dual:
-                # Vibrant crimson red for dual exit
                 return ["background-color: #D50000; color: #FFFFFF; font-weight: bold"] * len(row)
-            # Medium red for single exit
             return ["background-color: #C62828; color: #FFFFFF"] * len(row)
         else:
             # NO COLOR FOR NEUTRAL / WATCH ROWS (Transparent / Default Table Background)
