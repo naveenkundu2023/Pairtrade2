@@ -61,11 +61,6 @@ st.markdown("""
 
 """, unsafe_allow_html=True)
 
-─────────────────────────────────────────────────────────────
-
-PATH TO EXCEL / CANDIDATES
-
-─────────────────────────────────────────────────────────────
 
 EXCEL_PATH = os.environ.get(
 "PAIR_EXCEL_PATH",
@@ -77,12 +72,6 @@ EXCEL_PATH,
 "PAIR TRADE -NEW (1).xlsx",
 os.path.join(os.getcwd(), "PAIR TRADE -NEW (1).xlsx"),
 ]
-
-─────────────────────────────────────────────────────────────
-
-DEFAULT PAIRS
-
-─────────────────────────────────────────────────────────────
 
 DEFAULT_PAIRS = [
 {"name": "ICICIBANK-HDFCBANK", "s1": "ICICIBANK.NS", "s2": "HDFCBANK.NS",
@@ -123,11 +112,6 @@ DEFAULT_PAIRS = [
 "lot1": 2925, "lot2": 6750, "sector": "Energy", "excel_key": "COALINDIA"},
 ]
 
-─────────────────────────────────────────────────────────────
-
-LOAD SIGNAL DATA (Google Sheets CSV or Local Excel)
-
-─────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_live_signals(csv_url: str = ""):
@@ -244,11 +228,6 @@ new_p["excel"] = {}
 updated.append(new_p)
 return updated
 
-─────────────────────────────────────────────────────────────
-
-DATA HELPERS & ANALYTICS
-
-─────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=55, show_spinner=False)
 def fetch_pair_history(ticker1: str, ticker2: str, period: str = "1y") -> pd.DataFrame:
@@ -417,13 +396,6 @@ for label, tgt_r in targets:
     })
 return rows
 
-
-─────────────────────────────────────────────────────────────
-
-SIDEBAR
-
-─────────────────────────────────────────────────────────────
-
 with st.sidebar:
 st.markdown("## ⚙️ Controls")
 csv_url = st.text_input("Google Sheets Published CSV URL:", value="", help="Paste published CSV link from Google Sheets SIGNAL tab")
@@ -445,12 +417,6 @@ if st.button("🔄 Refresh Data"):
     st.cache_data.clear()
     st.rerun()
 
-
-─────────────────────────────────────────────────────────────
-
-MAIN DASHBOARD
-
-─────────────────────────────────────────────────────────────
 
 excel_map, signal_status = load_live_signals(csv_url)
 ALL_PAIRS = merge_excel_lots(DEFAULT_PAIRS, excel_map)
@@ -478,11 +444,6 @@ results.append({
 
 progress.empty()
 
-─────────────────────────────────────────────────────────────
-
-SUMMARY TABLE
-
-─────────────────────────────────────────────────────────────
 
 st.subheader("🎯 Live Signal Board — All Pairs")
 rows = []
@@ -522,11 +483,6 @@ c2.metric("🟢 Active Signals", sum(1 for r in rows if "ENTER" in r["Action"]))
 c3.metric("✅ Dual Confirmed", sum(1 for r in rows if "DUAL" in r["Dual"]))
 c4.metric("Avg |Z-Score|", round(np.mean([abs(r["Z-Score"]) for r in rows]), 2) if rows else 0)
 
-─────────────────────────────────────────────────────────────
-
-DEEP DIVE SECTION
-
-─────────────────────────────────────────────────────────────
 
 st.markdown("---")
 st.subheader("🔍 Pair Deep-Dive Analysis")
