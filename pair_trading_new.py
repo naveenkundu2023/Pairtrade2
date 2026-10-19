@@ -1,10 +1,11 @@
 """
-Pair Trading Dashboard - Streamlit App (High-Contrast & Live Time v5)
-=====================================================================
-- Dynamic un-cached header clock (updates instantly on every refresh)
-- High-contrast Signal Board colors (Vibrant Green for Dual Buy, Crimson Red for Dual Exit)
-- Mobile touch-scroll protection on Plotly charts
-- Persistent Google Sheets CSV link saving
+Pair Trading Dashboard - Streamlit App (Fully Dynamic & Clean v6)
+=================================================================
+- Real-time un-cached live clock evaluation on every page load
+- Cache-busting live Google Sheets CSV fetch (forces fresh data pull on every refresh)
+- Clean neutral rows (no navy blue background on watch/hold rows)
+- High-contrast signal row coloring (Green for Buy, Red for Exit)
+- Mobile-optimized touch-scroll Plotly charts
 """
 
 import streamlit as st
@@ -164,13 +165,17 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=1, show_spinner=False)
 def load_live_signals(csv_url: str = ""):
     excel_map = {}
 
     if csv_url.strip():
         try:
-            df = pd.read_csv(csv_url)
+            # Append cache-busting timestamp to force fresh fetch from Google Sheets on every refresh
+            sep = "&" if "?" in csv_url else "?"
+            fetch_url = f"{csv_url}{sep}t={time.time()}"
+            df = pd.read_csv(fetch_url)
+            
             for idx in range(0, len(df) - 1, 3):
                 try:
                     row1 = df.iloc[idx]
@@ -202,7 +207,7 @@ def load_live_signals(csv_url: str = ""):
                 except Exception:
                     continue
             if excel_map:
-                return excel_map, "Live Google Sheet CSV connected"
+                return excel_map, "Live Google Sheet CSV connected & freshly fetched"
         except Exception as e:
             st.sidebar.warning(f"CSV URL Error: {e}")
 
@@ -526,7 +531,7 @@ def historical_pair_stats(df: pd.DataFrame, z_entry: float = 1.5, lookback: int 
 excel_map, signal_status = load_live_signals(st.session_state["csv_url"])
 ALL_PAIRS = merge_excel_lots(DEFAULT_PAIRS, excel_map)
 
-# UN-CACHED LIVE CLOCK TIMESTAMP
+# UN-CACHED LIVE CLOCK EVALUATION (ALWAYS SHOWS CURRENT REAL-TIME SECONDS)
 live_clock_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
 
 # HEADER
@@ -536,7 +541,7 @@ st.caption(f"📂 {signal_status}")
 
 # SCAN PAIRS
 pairs_to_scan = [p for p in ALL_PAIRS if p["sector"] in sector_filter]
-progress = st.progress(0, text="Fetching market data...")
+progress = st.progress(0, text="Fetching live market data...")
 
 results = []
 for i, pair in enumerate(pairs_to_scan):
@@ -602,8 +607,8 @@ if rows:
             # Medium red for single exit
             return ["background-color: #C62828; color: #FFFFFF"] * len(row)
         else:
-            # Clean dark slate for neutral / watch
-            return ["background-color: #1E293B; color: #E0E0E0"] * len(row)
+            # NO COLOR FOR NEUTRAL / WATCH ROWS (Transparent / Default Table Background)
+            return [""] * len(row)
 
     styled_df = df_signals.style.apply(color_rows, axis=1)
     st.dataframe(styled_df, use_container_width=True, height=520)
@@ -761,7 +766,6 @@ if show_charts and HAS_PLOTLY and not selected_res["hist"].empty:
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02)
     )
-    # Touch-scroll protection for mobile screens
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': False})
 
 # 📊 HISTORICAL PAIR PERFORMANCE
