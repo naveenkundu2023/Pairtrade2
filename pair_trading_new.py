@@ -1,10 +1,10 @@
 """
-Pair Trading Dashboard - Streamlit App (Mobile Master v9 - FINAL)
+Pair Trading Dashboard - Streamlit App (Mobile Master v9 - FINAL v3)
 =========================================================
 - JSONBin permanent storage
-- Mobile: ONLY green/red status (no controls)
-- Desktop: full controls
-- Full dual confirmation, profit potential, historical, high-conviction details
+- Mobile: ONLY green/red status
+- High Conviction shows full Entry/Target/Stop/Support/Resistance
+- Forced identical settings on all devices
 """
 import streamlit as st
 import pandas as pd
@@ -76,7 +76,6 @@ st.markdown("""
     .js-plotly-plot, .plotly, .plot-container { touch-action: pan-y !important; }
     .stPlotlyChart { overflow: hidden !important; }
 
-    /* Hide desktop controls completely on mobile */
     @media (max-width: 768px) {
         .main-header { font-size: 1.5rem; }
         .sub-header { font-size: 0.8rem; }
@@ -124,22 +123,18 @@ def clean_csv_url(url: str) -> str:
     if not url:
         return ""
     url = str(url).strip()
-    # Remove any leading pollution
     if url.startswith("?csv_url="):
         url = url[len("?csv_url="):]
     if "csv_url=" in url:
         url = url.split("csv_url=")[-1]
-    # Extract clean Google Sheets URL
     match = re.search(r"(https://docs\.google\.com/spreadsheets/[^\s\"']+)", url)
     if match:
         url = match.group(1)
-    # Remove trailing junk
     url = url.split("&t=")[0].split("?t=")[0]
     if not url.startswith("https://"):
         return ""
     return url
 
-# ==================== JSONBIN ====================
 @st.cache_data(ttl=8, show_spinner=False)
 def load_csv_url_from_jsonbin():
     try:
@@ -162,7 +157,6 @@ def save_csv_url_to_jsonbin(url: str) -> bool:
     except Exception:
         return False
 
-# ==================== LOAD ====================
 locked_url = load_csv_url_from_jsonbin()
 
 # ==================== HEADER ====================
@@ -171,14 +165,13 @@ utc_now = datetime.now(timezone.utc)
 ist_now = utc_now + timedelta(hours=5, minutes=30)
 st.markdown(f'<p class="sub-header">Dual confirmation • {ist_now.strftime("%Y-%m-%d %H:%M:%S IST")}</p>', unsafe_allow_html=True)
 
-# ==================== STATUS (only thing visible on mobile) ====================
+# ==================== STATUS ====================
 if locked_url:
     st.success("✅ Google Sheet CSV  →  LOCKED & ACTIVE")
-    
 else:
     st.error("❌ Google Sheet CSV  →  NOT LOCKED")
 
-# ==================== DESKTOP CONTROLS (hidden on mobile via CSS) ====================
+# ==================== DESKTOP CONTROLS ====================
 st.markdown('<div class="desktop-controls">', unsafe_allow_html=True)
 
 with st.expander("⚙️ Desktop Controls", expanded=False):
@@ -194,21 +187,21 @@ with st.expander("⚙️ Desktop Controls", expanded=False):
                 st.success("Saved permanently!")
                 st.rerun()
             else:
-                st.error("Save failed. Make sure URL starts with https://")
+                st.error("Save failed. URL must start with https://")
     with c2:
         if st.button("🗑️ Clear", use_container_width=True):
             save_csv_url_to_jsonbin("")
             st.cache_data.clear()
             st.rerun()
     
-    st.markdown("#### Parameters")
+    st.markdown("#### Parameters (Desktop only – Mobile always uses fixed 1.5 / 0.5 / 60)")
     col1, col2, col3 = st.columns(3)
     with col1:
-        z_entry = st.slider("Z Entry", 1.0, 3.0, 1.5, 0.1)
+        z_entry_desk = st.slider("Z Entry", 1.0, 3.0, 1.5, 0.1)
     with col2:
-        z_exit = st.slider("Z Exit", 0.1, 1.5, 0.5, 0.1)
+        z_exit_desk = st.slider("Z Exit", 0.1, 1.5, 0.5, 0.1)
     with col3:
-        lookback = st.selectbox("Lookback", [30, 60, 90], index=1)
+        lookback_desk = st.selectbox("Lookback", [30, 60, 90], index=1)
     
     sector_filter = st.multiselect("Sectors", sorted({p["sector"] for p in DEFAULT_PAIRS}),
                                    default=sorted({p["sector"] for p in DEFAULT_PAIRS}))
@@ -220,7 +213,8 @@ with st.expander("⚙️ Desktop Controls", expanded=False):
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Force fixed values
+# ==================== FORCE SAME SETTINGS EVERYWHERE ====================
+# This guarantees Desktop and Mobile always use identical logic
 z_entry = 1.5
 z_exit = 0.5
 lookback = 60
@@ -270,10 +264,8 @@ def merge_excel_lots(pairs, excel_map):
         info = excel_map.get(key) or excel_map.get(key2)
         new_p = dict(p)
         if info:
-            if info.get("lot1", 0) > 0:
-                new_p["lot1"] = info["lot1"]
-            if info.get("lot2", 0) > 0:
-                new_p["lot2"] = info["lot2"]
+            if info.get("lot1", 0) > 0: new_p["lot1"] = info["lot1"]
+            if info.get("lot2", 0) > 0: new_p["lot2"] = info["lot2"]
             new_p["excel"] = info
         else:
             new_p["excel"] = {}
@@ -396,19 +388,37 @@ def profit_potential(metrics, signal, lots):
     return rows
 
 def recommend_prices(metrics, signal):
-    if not metrics or signal["action"] != "ENTER PAIR":
+    """Always return price levels when we have metrics (even for WATCH)."""
+    if not metrics:
         return {}
     z = metrics["zscore"]
-    p1, p2, ratio, mean_r = metrics["price1"], metrics["price2"], metrics["ratio"], metrics["ratio_mean"]
+    p1 = metrics["price1"]
+    p2 = metrics["price2"]
+    ratio = metrics["ratio"]
+    mean_r = metrics["ratio_mean"]
     stop_r = metrics["ratio_max_60"] * 1.02 if z > 0 else metrics["ratio_min_60"] * 0.98
-    if signal["leg1"] == "SELL":
-        return {
-            "entry1": round(p1, 2), "target1": round(p1 * (mean_r / ratio) * 0.98, 2), "stop1": round(p1 * (stop_r / ratio) * 1.01, 2),
-            "entry2": round(p2, 2), "target2": round(p2 * (ratio / mean_r) * 1.02, 2), "stop2": round(p2 * (ratio / stop_r) * 0.99, 2)
-        }
+
+    # Direction based on current Z
+    if z > 0.3:          # prefer sell leg1
+        entry1 = round(p1, 2)
+        target1 = round(p1 * (mean_r / ratio) * 0.98, 2)
+        stop1  = round(p1 * (stop_r / ratio) * 1.01, 2)
+        entry2 = round(p2, 2)
+        target2 = round(p2 * (ratio / mean_r) * 1.02, 2)
+        stop2  = round(p2 * (ratio / stop_r) * 0.99, 2)
+    else:
+        entry1 = round(p1, 2)
+        target1 = round(p1 * (mean_r / ratio) * 1.02, 2)
+        stop1  = round(p1 * (stop_r / ratio) * 0.99, 2)
+        entry2 = round(p2, 2)
+        target2 = round(p2 * (ratio / mean_r) * 0.98, 2)
+        stop2  = round(p2 * (ratio / stop_r) * 1.01, 2)
+
     return {
-        "entry1": round(p1, 2), "target1": round(p1 * (mean_r / ratio) * 1.02, 2), "stop1": round(p1 * (stop_r / ratio) * 0.99, 2),
-        "entry2": round(p2, 2), "target2": round(p2 * (ratio / mean_r) * 0.98, 2), "stop2": round(p2 * (ratio / stop_r) * 1.01, 2)
+        "entry1": entry1, "target1": target1, "stop1": stop1,
+        "entry2": entry2, "target2": target2, "stop2": stop2,
+        "support1": round(metrics["support1"], 2), "resist1": round(metrics["resist1"], 2),
+        "support2": round(metrics["support2"], 2), "resist2": round(metrics["resist2"], 2)
     }
 
 def historical_pair_stats(df, z_entry=1.5, lookback=60):
@@ -470,7 +480,7 @@ for i, pair in enumerate(pairs_to_scan):
     hist = fetch_pair_history(pair["s1"], pair["s2"])
     metrics = compute_pair_metrics(hist, lookback)
     signal = generate_signal(metrics, z_entry, z_exit)
-    prices = recommend_prices(metrics, signal)
+    prices = recommend_prices(metrics, signal)          # always calculate
     lots = recommend_cash_neutral_lots(metrics, pair["lot1"], pair["lot2"]) if metrics else {}
     hist_stats = historical_pair_stats(hist, z_entry, lookback) if not hist.empty else {}
     results.append({
@@ -522,27 +532,42 @@ c3.metric("✅ Dual", sum(1 for r in rows if "DUAL" in r["Dual"]))
 c4.metric("🟡 Watch", sum(1 for r in rows if "WATCH" in r["Action"]))
 c5.metric("Avg |Z|", round(np.mean([abs(r["Z"]) for r in rows]), 2) if rows else 0)
 
-# ==================== HIGH CONVICTION ====================
+# ==================== HIGH CONVICTION - FULL DETAILS ====================
 st.markdown("---")
 st.subheader("🧠 High-Conviction Entries")
-notes = []
-for r in results:
-    if not r["metrics"]:
-        continue
-    s = r["signal"]
-    m = r["metrics"]
-    p = r["pair"]
-    if "ENTER" in s["action"]:
-        dual_tag = " ✅ **DUAL CONFIRM**" if p.get("excel", {}).get("excel_action") == "BUY SIGNAL" else ""
-        notes.append(
-            f"**{p['name']}** — {s['action']} (Conf {s['confidence']}%){dual_tag}  \n"
-            f"Z = {m['zscore']:.2f} | Corr30 = {m['corr_30']:.2f}  \n"
-            f"**{p['s1']}** → **{s['leg1']}** &nbsp;&nbsp; **{p['s2']}** → **{s['leg2']}**  \n"
-            f"{s['reason']}"
-        )
-if notes:
-    for n in notes:
-        st.markdown(f"- {n}")
+
+high_conv = [r for r in results if r["metrics"] and "ENTER" in r["signal"]["action"]]
+
+if high_conv:
+    for r in high_conv:
+        s = r["signal"]
+        m = r["metrics"]
+        p = r["pair"]
+        pr = r.get("prices") or {}
+        dual_tag = " ✅ **DUAL CONFIRM**" if p.get("excel", {}).get("excel_action") == "BUY SIGNAL" else " ⚡ Independent"
+
+        st.markdown(f"### {p['name']}{dual_tag}")
+        st.markdown(f"**Action:** {s['action']} &nbsp;&nbsp;|&nbsp;&nbsp; **Confidence:** {s['confidence']}% &nbsp;&nbsp;|&nbsp;&nbsp; **Z-Score:** `{m['zscore']:.2f}`")
+        st.markdown(f"**{p['s1']}** → **{s['leg1']}** &nbsp;&nbsp;&nbsp;&nbsp; **{p['s2']}** → **{s['leg2']}**")
+        st.markdown(f"{s['reason']}")
+
+        # Always show price levels
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(f"**{p['s1']}**")
+            st.write(f"Entry Price  : **{pr.get('entry1', m['price1']):.2f}**")
+            st.write(f"Target Price : **{pr.get('target1', '—')}**")
+            st.write(f"Stop Price   : **{pr.get('stop1', '—')}**")
+            st.write(f"Support      : {pr.get('support1', m.get('support1', '—'))}")
+            st.write(f"Resistance   : {pr.get('resist1', m.get('resist1', '—'))}")
+        with c2:
+            st.markdown(f"**{p['s2']}**")
+            st.write(f"Entry Price  : **{pr.get('entry2', m['price2']):.2f}**")
+            st.write(f"Target Price : **{pr.get('target2', '—')}**")
+            st.write(f"Stop Price   : **{pr.get('stop2', '—')}**")
+            st.write(f"Support      : {pr.get('support2', m.get('support2', '—'))}")
+            st.write(f"Resistance   : {pr.get('resist2', m.get('resist2', '—'))}")
+        st.markdown("---")
 else:
     st.info("No high-conviction entries right now.")
 
@@ -578,24 +603,23 @@ if lots:
     st.write(f"**{lots['lots1']} × lot** of {p['s1']} ({lots['shares1']} shares)  vs  **{lots['lots2']} × lot** of {p['s2']} ({lots['shares2']} shares)")
     st.write(f"Imbalance: {lots['imbalance_pct']}%")
 
-# Profit Potential
 pnl_rows = profit_potential(m, s, lots)
 if pnl_rows:
     st.markdown("#### 💰 Profit Potential")
     st.dataframe(pd.DataFrame(pnl_rows), use_container_width=True, hide_index=True)
 
-# Entry / Target / Stop
 if pr:
-    st.markdown("#### 🎯 Entry / Target / Stop")
+    st.markdown("#### 🎯 Entry / Target / Stop + Support / Resistance")
     c1, c2 = st.columns(2)
     with c1:
         st.write(f"**{p['s1']}**")
-        st.write(f"Entry: {pr['entry1']} | Target: {pr['target1']} | Stop: {pr['stop1']}")
+        st.write(f"Entry: {pr.get('entry1')} | Target: {pr.get('target1')} | Stop: {pr.get('stop1')}")
+        st.write(f"Support: {pr.get('support1')} | Resistance: {pr.get('resist1')}")
     with c2:
         st.write(f"**{p['s2']}**")
-        st.write(f"Entry: {pr['entry2']} | Target: {pr['target2']} | Stop: {pr['stop2']}")
+        st.write(f"Entry: {pr.get('entry2')} | Target: {pr.get('target2')} | Stop: {pr.get('stop2')}")
+        st.write(f"Support: {pr.get('support2')} | Resistance: {pr.get('resist2')}")
 
-# Charts
 if show_charts and HAS_PLOTLY and not res["hist"].empty:
     hist = res["hist"]
     norm1 = hist["price1"] / hist["price1"].iloc[0] * 100
@@ -614,7 +638,7 @@ if show_charts and HAS_PLOTLY and not res["hist"].empty:
                       showlegend=True, margin=dict(l=20, r=10, t=30, b=20), dragmode=False)
     st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": False, "displayModeBar": False, "responsive": True})
 
-# ==================== HISTORICAL PERFORMANCE ====================
+# ==================== HISTORICAL ====================
 st.markdown("---")
 st.subheader("📊 Historical Pair Performance (Simulated)")
 st.caption("Enter when |Z| ≥ 1.5, exit when |Z| ≤ 0.5 or after 30 days.")
