@@ -1,10 +1,10 @@
 """
-Pair Trading Dashboard - Streamlit App (Mobile Master v9 - Sidebar Fix)
+Pair Trading Dashboard - Streamlit App (Mobile Master v9 - No Sidebar)
 =========================================================
-Critical fixes in this version:
-1. Sidebar completely restored – minimal CSS that does NOT touch sidebar visibility
-2. Green CSV status always visible (moved outside mobile-hide block)
-3. All previous fixes (charts, index 1-based, extra pairs) retained
+- Sidebar completely removed (all controls moved to main page)
+- Controls box placed above Live Signal Board
+- Green CSV status always visible
+- Charts mobile-safe, index starts at 1, extra 12 pairs included
 """
 import streamlit as st
 import pandas as pd
@@ -36,25 +36,29 @@ try:
 except ImportError:
     HAS_OPENPYXL = False
 
-# PAGE CONFIG – force expanded
+# PAGE CONFIG – collapse sidebar permanently
 st.set_page_config(
     page_title="Pair Trade Dashboard",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# MINIMAL SAFE CSS – only hide what we must, NEVER touch the sidebar itself
+# CSS – hide sidebar completely + clean look
 st.markdown("""
 <style>
-    /* Hide only non-essential chrome */
+    /* Completely hide sidebar and its toggle */
+    [data-testid="stSidebar"] {display: none !important;}
+    [data-testid="collapsedControl"] {display: none !important;}
+    section[data-testid="stSidebar"] {display: none !important;}
+
+    /* Hide other chrome */
     #MainMenu {visibility: hidden !important;}
     footer {visibility: hidden !important;}
     .viewerBadge_container__1QS1n {display: none !important;}
     [data-testid="stToolbar"] {display: none !important;}
     [data-testid="stDecoration"] {display: none !important;}
 
-    /* App background */
     .stApp { background-color: #0E1117; color: #E0E0E0; }
     
     .main-header {
@@ -88,11 +92,14 @@ st.markdown("""
     .dot-red   { color: #FF5252; font-size: 1.2rem; }
     .dot-gray  { color: #78909C; font-size: 1.2rem; }
     
-    /* Sidebar background only – do NOT touch visibility or display */
-    [data-testid="stSidebar"] {
-        background-color: #12161F;
+    /* Controls box styling */
+    .controls-box {
+        background: #1A1F2E;
+        border: 1px solid #37474F;
+        border-radius: 12px;
+        padding: 16px 18px;
+        margin-bottom: 20px;
     }
-    [data-testid="stSidebar"] label { color: #E0E0E0 !important; font-weight: 600; }
     
     /* Prevent Plotly charts from capturing touch on mobile */
     .js-plotly-plot, .plotly, .plot-container {
@@ -107,7 +114,6 @@ st.markdown("""
         .main-header { font-size: 1.5rem; }
         .sub-header { font-size: 0.8rem; }
         [data-testid="column"] { width: 100% !important; flex: 100% !important; min-width: 100% !important; }
-        .csv-url-section { display: none !important; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -167,57 +173,73 @@ if "csv_url" not in st.session_state:
 elif saved_csv_url and st.session_state.get("csv_url") != saved_csv_url:
     st.session_state["csv_url"] = saved_csv_url
 
-# ==================== SIDEBAR ====================
-with st.sidebar:
-    st.markdown("## ⚙️ Controls & Sync")
-    
-    # CSV URL input – hidden on mobile only
-    st.markdown('<div class="csv-url-section">', unsafe_allow_html=True)
+# ==================== HEADER ====================
+st.markdown('<p class="main-header">📈 Live Pair Trading Suite</p>', unsafe_allow_html=True)
+
+utc_now = datetime.now(timezone.utc)
+ist_now = utc_now + timedelta(hours=5, minutes=30)
+live_clock_ist = ist_now.strftime("%Y-%m-%d %H:%M:%S IST")
+st.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {live_clock_ist}</p>', unsafe_allow_html=True)
+
+# ==================== CONTROLS BOX (replaces sidebar) ====================
+with st.expander("⚙️ Controls & Sync  (click to expand / collapse)", expanded=True):
+    st.markdown("#### Google Sheets CSV Link")
     url_input = st.text_input(
-        "Google Sheets Published CSV URL:",
+        "Published CSV URL from Google Sheets SIGNAL tab:",
         value=st.session_state.get("csv_url", ""),
-        help="Paste published CSV link from Google Sheets SIGNAL tab."
+        help="Paste the published CSV link and click Save & Lock"
     )
     
-    col_a, col_b = st.columns(2)
-    with col_a:
-        if st.button("💾 Save & Lock", use_container_width=True):
+    c1, c2, c3 = st.columns([1, 1, 2])
+    with c1:
+        if st.button("💾 Save & Lock Link", use_container_width=True):
             st.session_state["csv_url"] = url_input.strip()
             st.query_params["csv_url"] = url_input.strip()
             st.cache_data.clear()
             st.rerun()
-    with col_b:
-        if st.button("🗑️ Clear", use_container_width=True):
+    with c2:
+        if st.button("🗑️ Clear Link", use_container_width=True):
             st.session_state["csv_url"] = ""
             if "csv_url" in st.query_params:
                 del st.query_params["csv_url"]
             st.cache_data.clear()
             st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
     
-    # ===== GREEN STATUS – ALWAYS VISIBLE (outside the mobile-hide div) =====
+    # Green status – always visible
     active_url = st.session_state.get("csv_url", "")
     if active_url:
-        st.success("✅ CSV Link LOCKED & ACTIVE")
-        st.caption(active_url[:80] + ("..." if len(active_url) > 80 else ""))
+        st.success(f"✅ CSV Link LOCKED & ACTIVE  →  {active_url[:90]}{'...' if len(active_url) > 90 else ''}")
     else:
-        st.warning("No CSV link locked – using local Excel / defaults")
+        st.warning("No CSV link locked – using local Excel / default pairs")
     
     st.markdown("---")
-    z_entry = st.slider("Z-score Entry Threshold", 1.0, 3.0, 1.5, 0.1)
-    z_exit = st.slider("Z-score Exit Threshold", 0.1, 1.5, 0.5, 0.1)
-    lookback = st.selectbox("Z-score Lookback (days)", [30, 60, 90], index=1)
+    st.markdown("#### Parameters")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        z_entry = st.slider("Z-score Entry Threshold", 1.0, 3.0, 1.5, 0.1)
+    with col2:
+        z_exit = st.slider("Z-score Exit Threshold", 0.1, 1.5, 0.5, 0.1)
+    with col3:
+        lookback = st.selectbox("Z-score Lookback (days)", [30, 60, 90], index=1)
+    
     sector_filter = st.multiselect(
         "Filter by Sector",
         options=sorted(set(p["sector"] for p in DEFAULT_PAIRS)),
         default=sorted(set(p["sector"] for p in DEFAULT_PAIRS)),
     )
-    auto_refresh = st.checkbox("Auto-refresh every 60s", value=False)
-    show_charts = st.checkbox("Show detailed charts", value=True)
-    if st.button("🔄 Refresh Data Now", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
+    
+    col4, col5, col6 = st.columns(3)
+    with col4:
+        auto_refresh = st.checkbox("Auto-refresh every 60s", value=False)
+    with col5:
+        show_charts = st.checkbox("Show detailed charts", value=True)
+    with col6:
+        if st.button("🔄 Refresh Data Now", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
 
+# ==================== LOAD DATA ====================
 @st.cache_data(ttl=1, show_spinner=False)
 def load_live_signals(csv_url: str = ""):
     excel_map = {}
@@ -256,7 +278,7 @@ def load_live_signals(csv_url: str = ""):
             if excel_map:
                 return excel_map, "Live Google Sheet CSV connected & active"
         except Exception as e:
-            st.sidebar.warning(f"CSV URL Error: {e}")
+            return {}, f"CSV URL Error: {e}"
     
     path = None
     for c in _CANDIDATES:
@@ -264,7 +286,7 @@ def load_live_signals(csv_url: str = ""):
             path = c
             break
     if not path or not HAS_OPENPYXL:
-        return {}, "Using default pair definitions (Paste CSV link in sidebar to sync live sheet)"
+        return {}, "Using default pair definitions (Paste CSV link above to sync live sheet)"
     try:
         wb = openpyxl.load_workbook(path, data_only=True)
         sheet_name = None
@@ -552,14 +574,6 @@ def historical_pair_stats(df: pd.DataFrame, z_entry: float = 1.5, lookback: int 
 # LOAD
 excel_map, signal_status = load_live_signals(st.session_state.get("csv_url", ""))
 ALL_PAIRS = merge_excel_lots(DEFAULT_PAIRS, excel_map)
-
-# HEADER
-st.markdown('<p class="main-header">📈 Live Pair Trading Suite</p>', unsafe_allow_html=True)
-
-utc_now = datetime.now(timezone.utc)
-ist_now = utc_now + timedelta(hours=5, minutes=30)
-live_clock_ist = ist_now.strftime("%Y-%m-%d %H:%M:%S IST")
-st.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {live_clock_ist}</p>', unsafe_allow_html=True)
 st.caption(f"📂 Status: {signal_status}")
 
 # SCAN
@@ -580,7 +594,7 @@ for i, pair in enumerate(pairs_to_scan):
     })
 progress.empty()
 
-# LIVE SIGNAL BOARD
+# ==================== LIVE SIGNAL BOARD ====================
 st.subheader("🎯 Live Signal Board — All Pairs")
 rows = []
 for r in results:
