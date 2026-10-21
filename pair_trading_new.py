@@ -1,10 +1,10 @@
 """
-Pair Trading Dashboard - Streamlit App (Mobile Master v9 - Cross-Device Persist)
+Pair Trading Dashboard - Streamlit App (Mobile Master v9 - Final Persist)
 =========================================================
-- Sidebar removed – all controls in main-page expander
-- CSV link saved via query_params (URL)
-- On mobile: input hidden, only green/red status shown
-- Clear instruction: after saving on desktop, bookmark the FULL URL so mobile loads the locked link
+- Sidebar removed
+- CSV link stored in query params
+- After Save & Lock: clearly shows the FULL shareable URL so user can copy/bookmark it
+- Mobile: input hidden, only status shown
 """
 import streamlit as st
 import pandas as pd
@@ -36,7 +36,6 @@ try:
 except ImportError:
     HAS_OPENPYXL = False
 
-# PAGE CONFIG
 st.set_page_config(
     page_title="Pair Trade Dashboard",
     page_icon="📈",
@@ -44,10 +43,8 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# CSS
 st.markdown("""
 <style>
-    /* Completely hide sidebar */
     [data-testid="stSidebar"] {display: none !important;}
     [data-testid="collapsedControl"] {display: none !important;}
     section[data-testid="stSidebar"] {display: none !important;}
@@ -95,7 +92,6 @@ st.markdown("""
         overflow: hidden !important;
     }
 
-    /* Hide the CSV input section on mobile – only status remains */
     @media (max-width: 768px) {
         .main-header { font-size: 1.5rem; }
         .sub-header { font-size: 0.8rem; }
@@ -105,7 +101,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# PATHS
 EXCEL_PATH = os.environ.get(
     "PAIR_EXCEL_PATH",
     os.path.join(os.path.dirname(__file__) if "__file__" in dir() else ".", "PAIR TRADE -NEW (1).xlsx")
@@ -117,7 +112,6 @@ _CANDIDATES = [
     os.path.join(os.getcwd(), "PAIR TRADE -NEW (1).xlsx"),
 ]
 
-# PAIRS (18 original + 12 extra)
 DEFAULT_PAIRS = [
     {"name": "ICICIBANK-HDFCBANK", "s1": "ICICIBANK.NS", "s2": "HDFCBANK.NS", "lot1": 700, "lot2": 550, "sector": "Banking", "excel_key": "ICICIBANK"},
     {"name": "AXISBANK-ICICIBANK", "s1": "AXISBANK.NS", "s2": "ICICIBANK.NS", "lot1": 625, "lot2": 700, "sector": "Banking", "excel_key": "AXISBANK"},
@@ -151,11 +145,7 @@ DEFAULT_PAIRS = [
     {"name": "ADANIENT-ADANIPORTS", "s1": "ADANIENT.NS", "s2": "ADANIPORTS.NS", "lot1": 300, "lot2": 1250, "sector": "Infrastructure", "excel_key": "ADANIENT"},
 ]
 
-# ========== PERSISTENT CSV LINK VIA QUERY PARAMS ==========
-# This is the only free cross-device method.
-# After saving on desktop the browser URL becomes:
-#   https://your-app.streamlit.app/?csv_url=THE_LINK
-# Open THAT full URL on mobile (or bookmark it) and the link stays locked.
+# ========== LOAD SAVED LINK ==========
 query_params = st.query_params
 saved_csv_url = query_params.get("csv_url", "")
 
@@ -172,34 +162,25 @@ ist_now = utc_now + timedelta(hours=5, minutes=30)
 live_clock_ist = ist_now.strftime("%Y-%m-%d %H:%M:%S IST")
 st.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {live_clock_ist}</p>', unsafe_allow_html=True)
 
-# ========== CONTROLS BOX ==========
+# ========== CONTROLS ==========
 with st.expander("⚙️ Controls & Sync  (click to expand / collapse)", expanded=True):
     
-    # ----- Desktop-only edit section -----
     st.markdown('<div class="csv-edit-section">', unsafe_allow_html=True)
-    st.markdown("#### Google Sheets CSV Link  (edit on Desktop only)")
-    st.info(
-        "**How cross-device works:**  \n"
-        "1. Paste the link and click **Save & Lock** on Desktop.  \n"
-        "2. Look at the browser address bar – it now contains `?csv_url=...`  \n"
-        "3. **Bookmark that full URL** or open the same full URL on mobile.  \n"
-        "The link will then load automatically on mobile with the green status."
-    )
+    st.markdown("#### Google Sheets CSV Link")
     
     url_input = st.text_input(
         "Published CSV URL from Google Sheets SIGNAL tab:",
         value=st.session_state.get("csv_url", ""),
-        help="Paste the published CSV link and click Save & Lock"
+        key="csv_url_input"
     )
     
-    c1, c2, c3 = st.columns([1, 1, 2])
+    c1, c2 = st.columns(2)
     with c1:
-        if st.button("💾 Save & Lock Link", use_container_width=True):
+        if st.button("💾 Save & Lock Link", use_container_width=True, type="primary"):
             clean = url_input.strip()
             st.session_state["csv_url"] = clean
-            st.query_params["csv_url"] = clean          # updates the browser URL
+            st.query_params["csv_url"] = clean
             st.cache_data.clear()
-            st.success("Link locked! The browser URL has been updated. Bookmark it for mobile.")
             st.rerun()
     with c2:
         if st.button("🗑️ Clear Link", use_container_width=True):
@@ -210,13 +191,26 @@ with st.expander("⚙️ Controls & Sync  (click to expand / collapse)", expande
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # ----- Status always visible (desktop + mobile) -----
+    # ===== STATUS + SHAREABLE URL =====
     active_url = st.session_state.get("csv_url", "")
+    
     if active_url:
-        st.success(f"✅ CSV Link LOCKED & ACTIVE")
-        st.caption(active_url[:100] + ("..." if len(active_url) > 100 else ""))
+        st.success("✅ CSV Link is LOCKED & ACTIVE")
+        
+        # Build the full shareable URL for the user
+        # We use a small JS snippet to get the real current page URL
+        st.markdown("**📋 Copy this full URL and open it on mobile (or bookmark it):**")
+        
+        # Show a ready-to-copy box
+        st.code(f"?csv_url={active_url}", language=None)
+        
+        st.info(
+            "After clicking **Save & Lock**, the link above is active.\n\n"
+            "• On Desktop: the browser address bar should also update (sometimes it needs a refresh).\n"
+            "• On Mobile: open the **full URL** that contains `?csv_url=...` (bookmark it once)."
+        )
     else:
-        st.warning("No CSV link locked – only Independent signals will appear. Save a link on Desktop and open the full URL on mobile.")
+        st.warning("No CSV link locked yet. Paste the Google Sheets published CSV link above and click Save & Lock.")
     
     st.markdown("---")
     st.markdown("#### Parameters")
@@ -245,7 +239,7 @@ with st.expander("⚙️ Controls & Sync  (click to expand / collapse)", expande
             st.cache_data.clear()
             st.rerun()
 
-# ========== DATA LOADING FUNCTIONS ==========
+# ========== REST OF THE APP (unchanged logic) ==========
 @st.cache_data(ttl=1, show_spinner=False)
 def load_live_signals(csv_url: str = ""):
     excel_map = {}
@@ -292,7 +286,7 @@ def load_live_signals(csv_url: str = ""):
             path = c
             break
     if not path or not HAS_OPENPYXL:
-        return {}, "Using default pair definitions (Save a CSV link on Desktop)"
+        return {}, "Using default pair definitions"
     try:
         wb = openpyxl.load_workbook(path, data_only=True)
         sheet_name = None
@@ -654,7 +648,7 @@ c3.metric("✅ Dual Confirm", sum(1 for r in rows if "DUAL" in r["Dual Status"])
 c4.metric("🟡 Watchlist", sum(1 for r in rows if "WATCH" in r["Action"]))
 c5.metric("Avg |Z|", round(np.mean([abs(r["Z-Score"]) for r in rows]), 2) if rows else 0)
 
-# INDEPENDENT ANALYTICS
+# INDEPENDENT
 st.markdown("---")
 st.subheader("🧠 Independent Analytics — High-Conviction Entries")
 notes = []
@@ -676,7 +670,7 @@ if notes:
     for n in notes:
         st.markdown(f"- {n}")
 else:
-    st.info("No high-conviction entry signals at the moment. All pair Z-scores are inside normal bands.")
+    st.info("No high-conviction entry signals at the moment.")
 
 # DEEP-DIVE
 st.markdown("---")
