@@ -1,12 +1,10 @@
 """
-Pair Trading Dashboard - Streamlit App (Mobile Master v9 - Fixed)
+Pair Trading Dashboard - Streamlit App (Mobile Master v9 - Sidebar Fix)
 =========================================================
-Fixes in this version:
-1. Sidebar fully visible + toggle (>>> / <<<) always present on desktop & mobile
-2. Plotly charts no longer disfigure / distort on mobile scroll (stronger touch shield)
-3. Clear green status for locked CSV link
-4. Live Signal Board index starts at 1 (not 0)
-5. Added 12 extra high-quality pairs so independent logic can surface more than the sheet's 18
+Critical fixes in this version:
+1. Sidebar completely restored – minimal CSS that does NOT touch sidebar visibility
+2. Green CSV status always visible (moved outside mobile-hide block)
+3. All previous fixes (charts, index 1-based, extra pairs) retained
 """
 import streamlit as st
 import pandas as pd
@@ -38,7 +36,7 @@ try:
 except ImportError:
     HAS_OPENPYXL = False
 
-# PAGE CONFIG – force expanded so sidebar is visible on first load
+# PAGE CONFIG – force expanded
 st.set_page_config(
     page_title="Pair Trade Dashboard",
     page_icon="📈",
@@ -46,29 +44,17 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# CLEAN CSS – keeps sidebar + toggle fully visible
+# MINIMAL SAFE CSS – only hide what we must, NEVER touch the sidebar itself
 st.markdown("""
 <style>
-    /* Hide only the things we really want hidden */
+    /* Hide only non-essential chrome */
     #MainMenu {visibility: hidden !important;}
     footer {visibility: hidden !important;}
     .viewerBadge_container__1QS1n {display: none !important;}
     [data-testid="stToolbar"] {display: none !important;}
     [data-testid="stDecoration"] {display: none !important;}
 
-    /* Keep sidebar and its collapse/expand control ALWAYS visible */
-    [data-testid="stSidebar"] {
-        background-color: #12161F !important;
-        visibility: visible !important;
-        display: block !important;
-    }
-    [data-testid="collapsedControl"] {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        z-index: 999999 !important;
-    }
-
+    /* App background */
     .stApp { background-color: #0E1117; color: #E0E0E0; }
     
     .main-header {
@@ -102,24 +88,25 @@ st.markdown("""
     .dot-red   { color: #FF5252; font-size: 1.2rem; }
     .dot-gray  { color: #78909C; font-size: 1.2rem; }
     
+    /* Sidebar background only – do NOT touch visibility or display */
+    [data-testid="stSidebar"] {
+        background-color: #12161F;
+    }
     [data-testid="stSidebar"] label { color: #E0E0E0 !important; font-weight: 600; }
     
-    /* Prevent Plotly charts from capturing touch / distorting on mobile scroll */
+    /* Prevent Plotly charts from capturing touch on mobile */
     .js-plotly-plot, .plotly, .plot-container {
         touch-action: pan-y !important;
-        -webkit-overflow-scrolling: touch;
     }
     .stPlotlyChart {
         overflow: hidden !important;
     }
 
-    /* Mobile Responsive Tweaks */
+    /* Mobile Responsive */
     @media (max-width: 768px) {
         .main-header { font-size: 1.5rem; }
         .sub-header { font-size: 0.8rem; }
         [data-testid="column"] { width: 100% !important; flex: 100% !important; min-width: 100% !important; }
-        
-        /* Hide the Google Sheets CSV URL section on mobile */
         .csv-url-section { display: none !important; }
     }
 </style>
@@ -137,9 +124,8 @@ _CANDIDATES = [
     os.path.join(os.getcwd(), "PAIR TRADE -NEW (1).xlsx"),
 ]
 
-# TOP NSE PAIR UNIVERSE – original 18 + 12 extra high-quality pairs for independent discovery
+# TOP NSE PAIR UNIVERSE – original 18 + 12 extra
 DEFAULT_PAIRS = [
-    # Original 18
     {"name": "ICICIBANK-HDFCBANK", "s1": "ICICIBANK.NS", "s2": "HDFCBANK.NS", "lot1": 700, "lot2": 550, "sector": "Banking", "excel_key": "ICICIBANK"},
     {"name": "AXISBANK-ICICIBANK", "s1": "AXISBANK.NS", "s2": "ICICIBANK.NS", "lot1": 625, "lot2": 700, "sector": "Banking", "excel_key": "AXISBANK"},
     {"name": "CIPLA-SUNPHARMA", "s1": "CIPLA.NS", "s2": "SUNPHARMA.NS", "lot1": 650, "lot2": 350, "sector": "Pharma", "excel_key": "CIPLA"},
@@ -158,7 +144,7 @@ DEFAULT_PAIRS = [
     {"name": "BERGEPAINT-ASIANPAINT", "s1": "BERGEPAINT.NS", "s2": "ASIANPAINT.NS", "lot1": 1320, "lot2": 200, "sector": "Paints", "excel_key": "BERGEPAINT"},
     {"name": "BANKBARODA-CANBK", "s1": "BANKBARODA.NS", "s2": "CANBK.NS", "lot1": 2925, "lot2": 6750, "sector": "Banking", "excel_key": "BANKBARODA"},
     {"name": "COALINDIA-GAIL", "s1": "COALINDIA.NS", "s2": "GAIL.NS", "lot1": 2925, "lot2": 6750, "sector": "Energy", "excel_key": "COALINDIA"},
-    # Extra 12 pairs for independent discovery (high liquidity / sector peers)
+    # Extra 12 pairs
     {"name": "SBIN-PNB", "s1": "SBIN.NS", "s2": "PNB.NS", "lot1": 1500, "lot2": 8000, "sector": "Banking", "excel_key": "SBIN"},
     {"name": "KOTAKBANK-HDFCBANK", "s1": "KOTAKBANK.NS", "s2": "HDFCBANK.NS", "lot1": 400, "lot2": 550, "sector": "Banking", "excel_key": "KOTAKBANK"},
     {"name": "INFY-TCS", "s1": "INFY.NS", "s2": "TCS.NS", "lot1": 400, "lot2": 175, "sector": "IT", "excel_key": "INFY"},
@@ -173,9 +159,7 @@ DEFAULT_PAIRS = [
     {"name": "ADANIENT-ADANIPORTS", "s1": "ADANIENT.NS", "s2": "ADANIPORTS.NS", "lot1": 300, "lot2": 1250, "sector": "Infrastructure", "excel_key": "ADANIENT"},
 ]
 
-# ============================================================
-# PERSISTENT CSV LINK (query_params + session_state)
-# ============================================================
+# PERSISTENT CSV LINK
 query_params = st.query_params
 saved_csv_url = query_params.get("csv_url", "")
 if "csv_url" not in st.session_state:
@@ -183,27 +167,27 @@ if "csv_url" not in st.session_state:
 elif saved_csv_url and st.session_state.get("csv_url") != saved_csv_url:
     st.session_state["csv_url"] = saved_csv_url
 
-# SIDEBAR
+# ==================== SIDEBAR ====================
 with st.sidebar:
     st.markdown("## ⚙️ Controls & Sync")
     
-    # CSV URL section – hidden on mobile
+    # CSV URL input – hidden on mobile only
     st.markdown('<div class="csv-url-section">', unsafe_allow_html=True)
     url_input = st.text_input(
         "Google Sheets Published CSV URL:",
         value=st.session_state.get("csv_url", ""),
-        help="Paste published CSV link from Google Sheets SIGNAL tab. Click Save & Lock to persist it."
+        help="Paste published CSV link from Google Sheets SIGNAL tab."
     )
     
-    if st.button("💾 Save & Lock Link", use_container_width=True):
-        st.session_state["csv_url"] = url_input.strip()
-        st.query_params["csv_url"] = url_input.strip()
-        st.cache_data.clear()
-        st.success("Link saved & locked in URL!")
-        st.rerun()
-    
-    if st.session_state.get("csv_url"):
-        if st.button("🗑️ Clear Locked Link", use_container_width=True):
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if st.button("💾 Save & Lock", use_container_width=True):
+            st.session_state["csv_url"] = url_input.strip()
+            st.query_params["csv_url"] = url_input.strip()
+            st.cache_data.clear()
+            st.rerun()
+    with col_b:
+        if st.button("🗑️ Clear", use_container_width=True):
             st.session_state["csv_url"] = ""
             if "csv_url" in st.query_params:
                 del st.query_params["csv_url"]
@@ -211,20 +195,13 @@ with st.sidebar:
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Prominent status
+    # ===== GREEN STATUS – ALWAYS VISIBLE (outside the mobile-hide div) =====
     active_url = st.session_state.get("csv_url", "")
     if active_url:
-        st.markdown(
-            f"""
-            <div style="background:#1B5E20;color:white;padding:10px 12px;border-radius:8px;margin:8px 0;">
-                <b>✅ CSV Link LOCKED & ACTIVE</b><br>
-                <span style="font-size:0.75rem;opacity:0.9;">{active_url[:65]}{'...' if len(active_url)>65 else ''}</span>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        st.success("✅ CSV Link LOCKED & ACTIVE")
+        st.caption(active_url[:80] + ("..." if len(active_url) > 80 else ""))
     else:
-        st.info("No CSV link locked – using local Excel / defaults")
+        st.warning("No CSV link locked – using local Excel / defaults")
     
     st.markdown("---")
     z_entry = st.slider("Z-score Entry Threshold", 1.0, 3.0, 1.5, 0.1)
@@ -281,7 +258,6 @@ def load_live_signals(csv_url: str = ""):
         except Exception as e:
             st.sidebar.warning(f"CSV URL Error: {e}")
     
-    # Fallback to local Excel file
     path = None
     for c in _CANDIDATES:
         if os.path.isfile(c):
@@ -573,22 +549,20 @@ def historical_pair_stats(df: pd.DataFrame, z_entry: float = 1.5, lookback: int 
         "details": trades[-12:],
     }
 
-# LOAD LIVE SIGNALS
+# LOAD
 excel_map, signal_status = load_live_signals(st.session_state.get("csv_url", ""))
 ALL_PAIRS = merge_excel_lots(DEFAULT_PAIRS, excel_map)
 
 # HEADER
 st.markdown('<p class="main-header">📈 Live Pair Trading Suite</p>', unsafe_allow_html=True)
 
-# EXACT IST TIME
 utc_now = datetime.now(timezone.utc)
 ist_now = utc_now + timedelta(hours=5, minutes=30)
 live_clock_ist = ist_now.strftime("%Y-%m-%d %H:%M:%S IST")
-live_clock_placeholder = st.empty()
-live_clock_placeholder.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {live_clock_ist}</p>', unsafe_allow_html=True)
+st.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {live_clock_ist}</p>', unsafe_allow_html=True)
 st.caption(f"📂 Status: {signal_status}")
 
-# SCAN PAIRS
+# SCAN
 pairs_to_scan = [p for p in ALL_PAIRS if p["sector"] in sector_filter]
 progress = st.progress(0, text="Fetching live market data...")
 results = []
@@ -606,7 +580,7 @@ for i, pair in enumerate(pairs_to_scan):
     })
 progress.empty()
 
-# 🎯 LIVE SIGNAL BOARD
+# LIVE SIGNAL BOARD
 st.subheader("🎯 Live Signal Board — All Pairs")
 rows = []
 for r in results:
@@ -634,7 +608,6 @@ for r in results:
 
 if rows:
     df_signals = pd.DataFrame(rows)
-    # Make index start from 1 instead of 0
     df_signals.index = range(1, len(df_signals) + 1)
     df_signals.index.name = "#"
     
@@ -661,7 +634,7 @@ c3.metric("✅ Dual Confirm", sum(1 for r in rows if "DUAL" in r["Dual Status"])
 c4.metric("🟡 Watchlist", sum(1 for r in rows if "WATCH" in r["Action"]))
 c5.metric("Avg |Z|", round(np.mean([abs(r["Z-Score"]) for r in rows]), 2) if rows else 0)
 
-# 🧠 INDEPENDENT ANALYTICS
+# INDEPENDENT ANALYTICS
 st.markdown("---")
 st.subheader("🧠 Independent Analytics — High-Conviction Entries")
 notes = []
@@ -685,7 +658,7 @@ if notes:
 else:
     st.info("No high-conviction entry signals at the moment. All pair Z-scores are inside normal bands.")
 
-# 🔍 PAIR DEEP-DIVE
+# DEEP-DIVE
 st.markdown("---")
 st.subheader("🔍 Pair Deep-Dive Analysis")
 selected = st.selectbox("Select Pair for Detailed Analysis", [r["pair"]["name"] for r in results if r["metrics"]])
@@ -701,7 +674,6 @@ k3.metric("30D Corr", f"{m['corr_30']:.2f}" if not np.isnan(m["corr_30"]) else "
 k4.metric("60D Corr", f"{m['corr_60']:.2f}" if not np.isnan(m["corr_60"]) else "—")
 k5.metric("Half-Life", f"{m['half_life']:.1f} d" if not np.isnan(m.get("half_life", np.nan)) else "—")
 
-# SIGNAL BOX BANNER
 action_bg = "#1B5E20" if "ENTER" in s["action"] else ("#F9A825" if "WATCH" in s["action"] else "#37474F")
 st.markdown(
     f"""
@@ -797,25 +769,23 @@ if show_charts and HAS_PLOTLY and not selected_res["hist"].empty:
         showlegend=True,
         margin=dict(l=30, r=10, t=40, b=30),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, font=dict(size=10)),
-        # Extra protection against mobile distortion
         dragmode=False,
         hovermode="x unified",
     )
     
-    # Strong mobile touch shield – disables almost all interactions that cause distortion
     mobile_config = {
         "scrollZoom": False,
         "displayModeBar": False,
         "doubleClick": False,
         "editable": False,
-        "staticPlot": False,          # keep hover but block drag/zoom
+        "staticPlot": False,
         "responsive": True,
         "displaylogo": False,
         "modeBarButtonsToRemove": ["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale", "resetScale"],
     }
     st.plotly_chart(fig, use_container_width=True, config=mobile_config)
 
-# 📊 HISTORICAL PAIR PERFORMANCE
+# HISTORICAL
 st.markdown("---")
 st.subheader("📊 Historical Pair Performance (Simulated — Last ~12 Months)")
 st.caption("Simple back-test: enter when |Z| ≥ entry threshold, exit when |Z| ≤ 0.5 or after 30 trading days.")
