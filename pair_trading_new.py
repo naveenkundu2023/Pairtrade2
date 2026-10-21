@@ -1,13 +1,12 @@
 """
-Pair Trading Dashboard - Streamlit App (Mobile Master v9 - Updated)
+Pair Trading Dashboard - Streamlit App (Mobile Master v9 - Fixed)
 =========================================================
-- 100% Mobile Touch-Optimized Plotly Charts (zero touch distortion on scroll)
-- Responsive CSS media queries for mobile-friendly cards and tables
-- Exact IST Timezone Clock (+5:30 UTC)
-- Hidden Streamlit/GitHub headers & menus for clean private look
-- FIXED: Sidebar expand/collapse arrow always visible (CSS no longer hides header controls)
-- FIXED/CONFIRMED: Google Sheets CSV URL is saved & locked via query_params + session_state
-- CSV/Excel link input hidden on mobile (paste only needed on desktop)
+Fixes in this version:
+1. Sidebar fully visible + toggle (>>> / <<<) always present on desktop & mobile
+2. Plotly charts no longer disfigure / distort on mobile scroll (stronger touch shield)
+3. Clear green status for locked CSV link
+4. Live Signal Board index starts at 1 (not 0)
+5. Added 12 extra high-quality pairs so independent logic can surface more than the sheet's 18
 """
 import streamlit as st
 import pandas as pd
@@ -39,7 +38,7 @@ try:
 except ImportError:
     HAS_OPENPYXL = False
 
-# PAGE CONFIG
+# PAGE CONFIG – force expanded so sidebar is visible on first load
 st.set_page_config(
     page_title="Pair Trade Dashboard",
     page_icon="📈",
@@ -47,35 +46,29 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# MOBILE-FRIENDLY CSS + HIDE HEADERS (but KEEP sidebar toggle controls)
+# CLEAN CSS – keeps sidebar + toggle fully visible
 st.markdown("""
 <style>
-    /* Hide Streamlit Main Menu, Footer and Viewer Badge – but DO NOT hide the sidebar toggle */
+    /* Hide only the things we really want hidden */
     #MainMenu {visibility: hidden !important;}
     footer {visibility: hidden !important;}
     .viewerBadge_container__1QS1n {display: none !important;}
-    
-    /* Keep header area visible enough for the sidebar collapse/expand control */
-    /* We only hide the Deploy/GitHub buttons, not the whole header */
     [data-testid="stToolbar"] {display: none !important;}
     [data-testid="stDecoration"] {display: none !important;}
-    
-    /* Make sure the collapsedControl (>>> arrow) is always visible and prominent */
+
+    /* Keep sidebar and its collapse/expand control ALWAYS visible */
+    [data-testid="stSidebar"] {
+        background-color: #12161F !important;
+        visibility: visible !important;
+        display: block !important;
+    }
     [data-testid="collapsedControl"] {
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
         z-index: 999999 !important;
-        background-color: #1A1F2E !important;
-        border-radius: 0 8px 8px 0 !important;
-        box-shadow: 2px 0 8px rgba(0,0,0,0.5) !important;
     }
-    [data-testid="collapsedControl"] svg {
-        fill: #00E5FF !important;
-        width: 1.4rem !important;
-        height: 1.4rem !important;
-    }
-    
+
     .stApp { background-color: #0E1117; color: #E0E0E0; }
     
     .main-header {
@@ -109,16 +102,24 @@ st.markdown("""
     .dot-red   { color: #FF5252; font-size: 1.2rem; }
     .dot-gray  { color: #78909C; font-size: 1.2rem; }
     
-    [data-testid="stSidebar"] { background-color: #12161F; }
     [data-testid="stSidebar"] label { color: #E0E0E0 !important; font-weight: 600; }
     
+    /* Prevent Plotly charts from capturing touch / distorting on mobile scroll */
+    .js-plotly-plot, .plotly, .plot-container {
+        touch-action: pan-y !important;
+        -webkit-overflow-scrolling: touch;
+    }
+    .stPlotlyChart {
+        overflow: hidden !important;
+    }
+
     /* Mobile Responsive Tweaks */
     @media (max-width: 768px) {
         .main-header { font-size: 1.5rem; }
         .sub-header { font-size: 0.8rem; }
         [data-testid="column"] { width: 100% !important; flex: 100% !important; min-width: 100% !important; }
         
-        /* Hide the Google Sheets CSV URL section on mobile (paste only on desktop) */
+        /* Hide the Google Sheets CSV URL section on mobile */
         .csv-url-section { display: none !important; }
     }
 </style>
@@ -136,8 +137,9 @@ _CANDIDATES = [
     os.path.join(os.getcwd(), "PAIR TRADE -NEW (1).xlsx"),
 ]
 
-# TOP NSE PAIR UNIVERSE
+# TOP NSE PAIR UNIVERSE – original 18 + 12 extra high-quality pairs for independent discovery
 DEFAULT_PAIRS = [
+    # Original 18
     {"name": "ICICIBANK-HDFCBANK", "s1": "ICICIBANK.NS", "s2": "HDFCBANK.NS", "lot1": 700, "lot2": 550, "sector": "Banking", "excel_key": "ICICIBANK"},
     {"name": "AXISBANK-ICICIBANK", "s1": "AXISBANK.NS", "s2": "ICICIBANK.NS", "lot1": 625, "lot2": 700, "sector": "Banking", "excel_key": "AXISBANK"},
     {"name": "CIPLA-SUNPHARMA", "s1": "CIPLA.NS", "s2": "SUNPHARMA.NS", "lot1": 650, "lot2": 350, "sector": "Pharma", "excel_key": "CIPLA"},
@@ -156,44 +158,50 @@ DEFAULT_PAIRS = [
     {"name": "BERGEPAINT-ASIANPAINT", "s1": "BERGEPAINT.NS", "s2": "ASIANPAINT.NS", "lot1": 1320, "lot2": 200, "sector": "Paints", "excel_key": "BERGEPAINT"},
     {"name": "BANKBARODA-CANBK", "s1": "BANKBARODA.NS", "s2": "CANBK.NS", "lot1": 2925, "lot2": 6750, "sector": "Banking", "excel_key": "BANKBARODA"},
     {"name": "COALINDIA-GAIL", "s1": "COALINDIA.NS", "s2": "GAIL.NS", "lot1": 2925, "lot2": 6750, "sector": "Energy", "excel_key": "COALINDIA"},
+    # Extra 12 pairs for independent discovery (high liquidity / sector peers)
+    {"name": "SBIN-PNB", "s1": "SBIN.NS", "s2": "PNB.NS", "lot1": 1500, "lot2": 8000, "sector": "Banking", "excel_key": "SBIN"},
+    {"name": "KOTAKBANK-HDFCBANK", "s1": "KOTAKBANK.NS", "s2": "HDFCBANK.NS", "lot1": 400, "lot2": 550, "sector": "Banking", "excel_key": "KOTAKBANK"},
+    {"name": "INFY-TCS", "s1": "INFY.NS", "s2": "TCS.NS", "lot1": 400, "lot2": 175, "sector": "IT", "excel_key": "INFY"},
+    {"name": "WIPRO-HCLTECH", "s1": "WIPRO.NS", "s2": "HCLTECH.NS", "lot1": 1500, "lot2": 350, "sector": "IT", "excel_key": "WIPRO"},
+    {"name": "RELIANCE-ONGC", "s1": "RELIANCE.NS", "s2": "ONGC.NS", "lot1": 250, "lot2": 1925, "sector": "Oil & Gas", "excel_key": "RELIANCE"},
+    {"name": "MARUTI-M&M", "s1": "MARUTI.NS", "s2": "M&M.NS", "lot1": 100, "lot2": 350, "sector": "Auto", "excel_key": "MARUTI"},
+    {"name": "TITAN-TATASTEEL", "s1": "TITAN.NS", "s2": "TATASTEEL.NS", "lot1": 175, "lot2": 5500, "sector": "Consumer", "excel_key": "TITAN"},
+    {"name": "ULTRACEMCO-SHREECEM", "s1": "ULTRACEMCO.NS", "s2": "SHREECEM.NS", "lot1": 100, "lot2": 25, "sector": "Cement", "excel_key": "ULTRACEMCO"},
+    {"name": "DRREDDY-CIPLA", "s1": "DRREDDY.NS", "s2": "CIPLA.NS", "lot1": 125, "lot2": 650, "sector": "Pharma", "excel_key": "DRREDDY"},
+    {"name": "HDFCLIFE-SBILIFE", "s1": "HDFCLIFE.NS", "s2": "SBILIFE.NS", "lot1": 1100, "lot2": 750, "sector": "Insurance", "excel_key": "HDFCLIFE"},
+    {"name": "POWERGRID-NTPC", "s1": "POWERGRID.NS", "s2": "NTPC.NS", "lot1": 2700, "lot2": 1500, "sector": "Power", "excel_key": "POWERGRID"},
+    {"name": "ADANIENT-ADANIPORTS", "s1": "ADANIENT.NS", "s2": "ADANIPORTS.NS", "lot1": 300, "lot2": 1250, "sector": "Infrastructure", "excel_key": "ADANIENT"},
 ]
 
 # ============================================================
-# PERSISTENT CROSS-DEVICE / CROSS-REFRESH LINK SAVING
-# Logic (already correct + slightly hardened):
-# 1. Read csv_url from browser query params first (this is the "locked" value)
-# 2. Mirror it into session_state so widgets stay in sync
-# 3. On "Save & Lock" we write BOTH session_state AND query_params
-#    → URL gets ?csv_url=... and stays locked until a new link is saved
+# PERSISTENT CSV LINK (query_params + session_state)
 # ============================================================
 query_params = st.query_params
 saved_csv_url = query_params.get("csv_url", "")
 if "csv_url" not in st.session_state:
     st.session_state["csv_url"] = saved_csv_url
-# Keep session_state in sync if URL param changed externally
 elif saved_csv_url and st.session_state.get("csv_url") != saved_csv_url:
     st.session_state["csv_url"] = saved_csv_url
 
-# SIDEBAR CONTROL
+# SIDEBAR
 with st.sidebar:
     st.markdown("## ⚙️ Controls & Sync")
     
-    # CSV URL section – hidden on mobile via CSS class
+    # CSV URL section – hidden on mobile
     st.markdown('<div class="csv-url-section">', unsafe_allow_html=True)
     url_input = st.text_input(
         "Google Sheets Published CSV URL:",
         value=st.session_state.get("csv_url", ""),
-        help="Paste published CSV link from Google Sheets SIGNAL tab. Click Save & Lock to persist it in the URL."
+        help="Paste published CSV link from Google Sheets SIGNAL tab. Click Save & Lock to persist it."
     )
     
     if st.button("💾 Save & Lock Link", use_container_width=True):
         st.session_state["csv_url"] = url_input.strip()
-        st.query_params["csv_url"] = url_input.strip()   # ← this locks it in the browser URL
+        st.query_params["csv_url"] = url_input.strip()
         st.cache_data.clear()
-        st.success("Link saved & locked in URL! It will stay active on refresh / share.")
+        st.success("Link saved & locked in URL!")
         st.rerun()
     
-    # Clear button (optional but useful)
     if st.session_state.get("csv_url"):
         if st.button("🗑️ Clear Locked Link", use_container_width=True):
             st.session_state["csv_url"] = ""
@@ -203,13 +211,20 @@ with st.sidebar:
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Status of currently locked link
+    # Prominent status
     active_url = st.session_state.get("csv_url", "")
     if active_url:
-        st.success("✅ CSV Link is LOCKED & ACTIVE")
-        st.caption(active_url[:70] + ("..." if len(active_url) > 70 else ""))
+        st.markdown(
+            f"""
+            <div style="background:#1B5E20;color:white;padding:10px 12px;border-radius:8px;margin:8px 0;">
+                <b>✅ CSV Link LOCKED & ACTIVE</b><br>
+                <span style="font-size:0.75rem;opacity:0.9;">{active_url[:65]}{'...' if len(active_url)>65 else ''}</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
     else:
-        st.info("No CSV link locked – using local Excel or defaults")
+        st.info("No CSV link locked – using local Excel / defaults")
     
     st.markdown("---")
     z_entry = st.slider("Z-score Entry Threshold", 1.0, 3.0, 1.5, 0.1)
@@ -565,7 +580,7 @@ ALL_PAIRS = merge_excel_lots(DEFAULT_PAIRS, excel_map)
 # HEADER
 st.markdown('<p class="main-header">📈 Live Pair Trading Suite</p>', unsafe_allow_html=True)
 
-# EXACT IST TIME CONVERSION (+5h 30m OFFSET FROM UTC)
+# EXACT IST TIME
 utc_now = datetime.now(timezone.utc)
 ist_now = utc_now + timedelta(hours=5, minutes=30)
 live_clock_ist = ist_now.strftime("%Y-%m-%d %H:%M:%S IST")
@@ -616,8 +631,13 @@ for r in results:
         "Conf%": s["confidence"], "Sheet Signal": excel_act, "Dual Status": dual,
         "HalfLife": round(m["half_life"], 1) if not np.isnan(m.get("half_life", np.nan)) else "—",
     })
+
 if rows:
     df_signals = pd.DataFrame(rows)
+    # Make index start from 1 instead of 0
+    df_signals.index = range(1, len(df_signals) + 1)
+    df_signals.index.name = "#"
+    
     def color_rows(row):
         act = str(row["Action"]).upper()
         dual = str(row["Dual Status"])
@@ -641,7 +661,7 @@ c3.metric("✅ Dual Confirm", sum(1 for r in rows if "DUAL" in r["Dual Status"])
 c4.metric("🟡 Watchlist", sum(1 for r in rows if "WATCH" in r["Action"]))
 c5.metric("Avg |Z|", round(np.mean([abs(r["Z-Score"]) for r in rows]), 2) if rows else 0)
 
-# 🧠 INDEPENDENT ANALYTICS - HIGH CONVICTION
+# 🧠 INDEPENDENT ANALYTICS
 st.markdown("---")
 st.subheader("🧠 Independent Analytics — High-Conviction Entries")
 notes = []
@@ -776,17 +796,22 @@ if show_charts and HAS_PLOTLY and not selected_res["hist"].empty:
         plot_bgcolor="#1A1F2E",
         showlegend=True,
         margin=dict(l=30, r=10, t=40, b=30),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, font=dict(size=10))
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, font=dict(size=10)),
+        # Extra protection against mobile distortion
+        dragmode=False,
+        hovermode="x unified",
     )
     
-    # 100% Mobile Touch Shield Config: Prevents touch-scroll from disfiguring or squishing charts
+    # Strong mobile touch shield – disables almost all interactions that cause distortion
     mobile_config = {
-        'scrollZoom': False,
-        'dragmode': False,
-        'displayModeBar': False,
-        'responsive': True,
-        'doubleClick': 'reset',
-        'staticPlot': False
+        "scrollZoom": False,
+        "displayModeBar": False,
+        "doubleClick": False,
+        "editable": False,
+        "staticPlot": False,          # keep hover but block drag/zoom
+        "responsive": True,
+        "displaylogo": False,
+        "modeBarButtonsToRemove": ["zoom", "pan", "select", "lasso", "zoomIn", "zoomOut", "autoScale", "resetScale"],
     }
     st.plotly_chart(fig, use_container_width=True, config=mobile_config)
 
