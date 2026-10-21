@@ -1,12 +1,14 @@
 """
-Pair Trading Dashboard - Streamlit App (Mobile Master v9)
+Pair Trading Dashboard - Streamlit App (Mobile Master v9 - Updated)
 =========================================================
 - 100% Mobile Touch-Optimized Plotly Charts (zero touch distortion on scroll)
 - Responsive CSS media queries for mobile-friendly cards and tables
 - Exact IST Timezone Clock (+5:30 UTC)
 - Hidden Streamlit/GitHub headers & menus for clean private look
+- FIXED: Sidebar expand/collapse arrow always visible (CSS no longer hides header controls)
+- FIXED/CONFIRMED: Google Sheets CSV URL is saved & locked via query_params + session_state
+- CSV/Excel link input hidden on mobile (paste only needed on desktop)
 """
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -15,26 +17,22 @@ import time
 import os
 import warnings
 warnings.filterwarnings("ignore")
-
 try:
     import yfinance as yf
     HAS_YF = True
 except ImportError:
     HAS_YF = False
-
 try:
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
     HAS_PLOTLY = True
 except ImportError:
     HAS_PLOTLY = False
-
 try:
     from scipy import stats
     HAS_SCIPY = True
 except ImportError:
     HAS_SCIPY = False
-
 try:
     import openpyxl
     HAS_OPENPYXL = True
@@ -49,15 +47,34 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# MOBILE-FRIENDLY CSS + HIDE HEADERS
+# MOBILE-FRIENDLY CSS + HIDE HEADERS (but KEEP sidebar toggle controls)
 st.markdown("""
 <style>
-    /* Hide Streamlit Header, GitHub icons, Main Menu, and Footer */
+    /* Hide Streamlit Main Menu, Footer and Viewer Badge – but DO NOT hide the sidebar toggle */
     #MainMenu {visibility: hidden !important;}
-    header {visibility: hidden !important;}
     footer {visibility: hidden !important;}
-    [data-testid="stHeader"] {display: none !important;}
     .viewerBadge_container__1QS1n {display: none !important;}
+    
+    /* Keep header area visible enough for the sidebar collapse/expand control */
+    /* We only hide the Deploy/GitHub buttons, not the whole header */
+    [data-testid="stToolbar"] {display: none !important;}
+    [data-testid="stDecoration"] {display: none !important;}
+    
+    /* Make sure the collapsedControl (>>> arrow) is always visible and prominent */
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        z-index: 999999 !important;
+        background-color: #1A1F2E !important;
+        border-radius: 0 8px 8px 0 !important;
+        box-shadow: 2px 0 8px rgba(0,0,0,0.5) !important;
+    }
+    [data-testid="collapsedControl"] svg {
+        fill: #00E5FF !important;
+        width: 1.4rem !important;
+        height: 1.4rem !important;
+    }
     
     .stApp { background-color: #0E1117; color: #E0E0E0; }
     
@@ -94,12 +111,15 @@ st.markdown("""
     
     [data-testid="stSidebar"] { background-color: #12161F; }
     [data-testid="stSidebar"] label { color: #E0E0E0 !important; font-weight: 600; }
-
+    
     /* Mobile Responsive Tweaks */
     @media (max-width: 768px) {
         .main-header { font-size: 1.5rem; }
         .sub-header { font-size: 0.8rem; }
         [data-testid="column"] { width: 100% !important; flex: 100% !important; min-width: 100% !important; }
+        
+        /* Hide the Google Sheets CSV URL section on mobile (paste only on desktop) */
+        .csv-url-section { display: none !important; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -138,44 +158,70 @@ DEFAULT_PAIRS = [
     {"name": "COALINDIA-GAIL", "s1": "COALINDIA.NS", "s2": "GAIL.NS", "lot1": 2925, "lot2": 6750, "sector": "Energy", "excel_key": "COALINDIA"},
 ]
 
-# PERSISTENT CROSS-DEVICE LINK SAVING
+# ============================================================
+# PERSISTENT CROSS-DEVICE / CROSS-REFRESH LINK SAVING
+# Logic (already correct + slightly hardened):
+# 1. Read csv_url from browser query params first (this is the "locked" value)
+# 2. Mirror it into session_state so widgets stay in sync
+# 3. On "Save & Lock" we write BOTH session_state AND query_params
+#    → URL gets ?csv_url=... and stays locked until a new link is saved
+# ============================================================
 query_params = st.query_params
 saved_csv_url = query_params.get("csv_url", "")
-
 if "csv_url" not in st.session_state:
+    st.session_state["csv_url"] = saved_csv_url
+# Keep session_state in sync if URL param changed externally
+elif saved_csv_url and st.session_state.get("csv_url") != saved_csv_url:
     st.session_state["csv_url"] = saved_csv_url
 
 # SIDEBAR CONTROL
 with st.sidebar:
     st.markdown("## ⚙️ Controls & Sync")
     
+    # CSV URL section – hidden on mobile via CSS class
+    st.markdown('<div class="csv-url-section">', unsafe_allow_html=True)
     url_input = st.text_input(
         "Google Sheets Published CSV URL:",
-        value=st.session_state["csv_url"],
-        help="Paste published CSV link from Google Sheets SIGNAL tab."
+        value=st.session_state.get("csv_url", ""),
+        help="Paste published CSV link from Google Sheets SIGNAL tab. Click Save & Lock to persist it in the URL."
     )
     
     if st.button("💾 Save & Lock Link", use_container_width=True):
-        st.session_state["csv_url"] = url_input
-        st.query_params["csv_url"] = url_input
+        st.session_state["csv_url"] = url_input.strip()
+        st.query_params["csv_url"] = url_input.strip()   # ← this locks it in the browser URL
         st.cache_data.clear()
-        st.success("Link saved permanently!")
+        st.success("Link saved & locked in URL! It will stay active on refresh / share.")
         st.rerun()
-
+    
+    # Clear button (optional but useful)
+    if st.session_state.get("csv_url"):
+        if st.button("🗑️ Clear Locked Link", use_container_width=True):
+            st.session_state["csv_url"] = ""
+            if "csv_url" in st.query_params:
+                del st.query_params["csv_url"]
+            st.cache_data.clear()
+            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Status of currently locked link
+    active_url = st.session_state.get("csv_url", "")
+    if active_url:
+        st.success("✅ CSV Link is LOCKED & ACTIVE")
+        st.caption(active_url[:70] + ("..." if len(active_url) > 70 else ""))
+    else:
+        st.info("No CSV link locked – using local Excel or defaults")
+    
     st.markdown("---")
     z_entry = st.slider("Z-score Entry Threshold", 1.0, 3.0, 1.5, 0.1)
     z_exit = st.slider("Z-score Exit Threshold", 0.1, 1.5, 0.5, 0.1)
     lookback = st.selectbox("Z-score Lookback (days)", [30, 60, 90], index=1)
-
     sector_filter = st.multiselect(
         "Filter by Sector",
         options=sorted(set(p["sector"] for p in DEFAULT_PAIRS)),
         default=sorted(set(p["sector"] for p in DEFAULT_PAIRS)),
     )
-
     auto_refresh = st.checkbox("Auto-refresh every 60s", value=False)
     show_charts = st.checkbox("Show detailed charts", value=True)
-
     if st.button("🔄 Refresh Data Now", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
@@ -183,7 +229,6 @@ with st.sidebar:
 @st.cache_data(ttl=1, show_spinner=False)
 def load_live_signals(csv_url: str = ""):
     excel_map = {}
-
     if csv_url.strip():
         try:
             sep = "&" if "?" in csv_url else "?"
@@ -200,18 +245,14 @@ def load_live_signals(csv_url: str = ""):
                         continue
                     s1 = s1_raw.replace("NSE:", "").replace("INDEXNSE:", "").replace("MCX:", "").strip()
                     s2 = s2_raw.replace("NSE:", "").replace("INDEXNSE:", "").replace("MCX:", "").strip()
-
                     lot1 = int(float(row1.iloc[0])) if pd.notnull(row1.iloc[0]) else 0
                     lot2 = int(float(row2.iloc[0])) if pd.notnull(row2.iloc[0]) else 0
-
                     z_val = float(row1.iloc[11]) if len(row1) > 11 and pd.notnull(row1.iloc[11]) else None
                     ratio_val = float(row1.iloc[14]) if len(row1) > 14 and pd.notnull(row1.iloc[14]) else None
                     excel_buy = str(row1.iloc[29]) if len(row1) > 29 and pd.notnull(row1.iloc[29]) else ""
-
                     excel_action = "NEUTRAL"
                     if "Buy" in excel_buy and "Do Not" not in excel_buy:
                         excel_action = "BUY SIGNAL"
-
                     key = s1.upper()
                     excel_map[key] = {
                         "lot1": lot1, "lot2": lot2, "s1": s1, "s2": s2,
@@ -224,7 +265,7 @@ def load_live_signals(csv_url: str = ""):
                 return excel_map, "Live Google Sheet CSV connected & active"
         except Exception as e:
             st.sidebar.warning(f"CSV URL Error: {e}")
-
+    
     # Fallback to local Excel file
     path = None
     for c in _CANDIDATES:
@@ -233,7 +274,6 @@ def load_live_signals(csv_url: str = ""):
             break
     if not path or not HAS_OPENPYXL:
         return {}, "Using default pair definitions (Paste CSV link in sidebar to sync live sheet)"
-
     try:
         wb = openpyxl.load_workbook(path, data_only=True)
         sheet_name = None
@@ -243,7 +283,6 @@ def load_live_signals(csv_url: str = ""):
                 break
         if not sheet_name:
             return {}, "SIGNAL sheet not found in Excel"
-
         ws = wb[sheet_name]
         row = 5
         while row < 80:
@@ -260,11 +299,9 @@ def load_live_signals(csv_url: str = ""):
                     z_val = ws.cell(row=row, column=12).value
                     ratio_val = ws.cell(row=row, column=15).value
                     excel_buy = ws.cell(row=row, column=30).value
-
                     excel_action = "NEUTRAL"
                     if excel_buy and "Buy" in str(excel_buy) and "Do Not" not in str(excel_buy):
                         excel_action = "BUY SIGNAL"
-
                     key = s1.upper()
                     excel_map[key] = {
                         "lot1": lot1, "lot2": lot2, "s1": s1, "s2": s2,
@@ -311,31 +348,24 @@ def fetch_pair_history(ticker1: str, ticker2: str, period: str = "1y") -> pd.Dat
 def compute_pair_metrics(df: pd.DataFrame, lookback: int = 60) -> dict:
     if df.empty or len(df) < 30:
         return {}
-
     ratio = df["price1"] / df["price2"]
     window = min(lookback, len(ratio) - 1)
-
     ratio_mean = ratio.rolling(window).mean()
     ratio_std = ratio.rolling(window).std()
     zscore = (ratio - ratio_mean) / ratio_std
-
     corr_30 = df["price1"].tail(30).corr(df["price2"].tail(30)) if len(df) >= 30 else np.nan
     corr_60 = df["price1"].tail(60).corr(df["price2"].tail(60)) if len(df) >= 60 else np.nan
-
     cur_ratio = float(ratio.iloc[-1])
     cur_z = float(zscore.iloc[-1]) if not np.isnan(zscore.iloc[-1]) else 0.0
     cur_p1 = float(df["price1"].iloc[-1])
     cur_p2 = float(df["price2"].iloc[-1])
-
     recent60 = df.tail(60)
     support1 = float(recent60["price1"].min())
     resist1 = float(recent60["price1"].max())
     support2 = float(recent60["price2"].min())
     resist2 = float(recent60["price2"].max())
-
     r30 = ratio.tail(30)
     r60 = ratio.tail(60)
-
     half_life = np.nan
     if HAS_SCIPY and len(ratio) > 30:
         try:
@@ -347,12 +377,10 @@ def compute_pair_metrics(df: pd.DataFrame, lookback: int = 60) -> dict:
                 half_life = -np.log(2) / slope
         except Exception:
             pass
-
     ratio_sma20 = ratio.rolling(20).mean()
     divergence = (ratio - ratio_sma20) / ratio_sma20
     last5_div = divergence.tail(5).tolist() if len(divergence) >= 5 else []
     last5_dates = [d.strftime("%d-%b") for d in divergence.tail(5).index] if len(divergence) >= 5 else []
-
     return {
         "ratio": cur_ratio, "zscore": cur_z,
         "corr_30": corr_30, "corr_60": corr_60,
@@ -371,12 +399,10 @@ def compute_pair_metrics(df: pd.DataFrame, lookback: int = 60) -> dict:
 def generate_signal(metrics: dict, z_entry: float = 1.5, z_exit: float = 0.5) -> dict:
     if not metrics:
         return {"action": "NO DATA", "leg1": "—", "leg2": "—", "confidence": 0, "reason": "Insufficient data", "deep_reason": ""}
-
     z = metrics["zscore"]
     corr = metrics.get("corr_30") or metrics.get("corr_60") or 0
     abs_z = abs(z)
     corr_ok = abs(corr) >= 0.5 if not np.isnan(corr) else False
-
     deep = ""
     if abs_z >= z_entry and corr_ok:
         if z > 0:
@@ -398,7 +424,6 @@ def generate_signal(metrics: dict, z_entry: float = 1.5, z_exit: float = 0.5) ->
         reason = f"Z-score {z:.2f} inside neutral band. Waiting for stretch"
         deep = "Wait for |Z| to exceed the entry threshold before committing capital."
         confidence = 20
-
     return {
         "action": action, "leg1": leg1, "leg2": leg2,
         "confidence": confidence, "reason": reason, "deep_reason": deep,
@@ -443,20 +468,17 @@ def profit_potential(metrics: dict, signal: dict, lots_info: dict) -> list:
     ]
     sh1, sh2 = lots_info.get("shares1", 0), lots_info.get("shares2", 0)
     if sh1 == 0: return []
-
     rows = []
     direction = signal.get("leg1", "")
     for label, tgt_r in targets:
         if tgt_r <= 0 or cur_r <= 0: continue
         p1_new_a = tgt_r * p2
         p2_new_b = p1 / tgt_r
-
         if direction == "SELL":
             pnl = (sh1 * (p1 - p1_new_a) + sh2 * (p2_new_b - p2)) / 2
         elif direction == "BUY":
             pnl = (sh1 * (p1_new_a - p1) + sh2 * (p2 - p2_new_b)) / 2
         else: pnl = 0
-
         rows.append({
             "Target": label, "Target Ratio": round(tgt_r, 4),
             "Ratio Move %": round(abs(tgt_r - cur_r) / cur_r * 100, 2),
@@ -473,7 +495,6 @@ def recommend_prices(metrics: dict, signal: dict) -> dict:
     mean_r = metrics["ratio_mean"]
     target_ratio = mean_r
     stop_ratio = metrics["ratio_max_60"] * 1.02 if z > 0 else metrics["ratio_min_60"] * 0.98
-
     if signal["leg1"] == "SELL":
         entry1, target1 = p1, p1 * (target_ratio / ratio) * 0.98
         stop1 = p1 * (stop_ratio / ratio) * 1.01
@@ -484,7 +505,6 @@ def recommend_prices(metrics: dict, signal: dict) -> dict:
         stop1 = p1 * (stop_ratio / ratio) * 0.99
         entry2, target2 = p2, p2 * (ratio / target_ratio) * 0.98
         stop2 = p2 * (ratio / stop_ratio) * 1.01
-
     return {
         "entry1": round(entry1, 2), "target1": round(target1, 2), "stop1": round(stop1, 2),
         "entry2": round(entry2, 2), "target2": round(target2, 2), "stop2": round(stop2, 2),
@@ -495,12 +515,10 @@ def recommend_prices(metrics: dict, signal: dict) -> dict:
 def historical_pair_stats(df: pd.DataFrame, z_entry: float = 1.5, lookback: int = 60) -> dict:
     if df.empty or len(df) < lookback + 20:
         return {"trades": 0, "wins": 0, "win_rate": None, "avg_pnl_pct": None, "details": []}
-
     ratio = df["price1"] / df["price2"]
     rmean = ratio.rolling(lookback).mean()
     rstd = ratio.rolling(lookback).std()
     z = (ratio - rmean) / rstd
-
     trades = []
     i = lookback
     while i < len(z) - 5:
@@ -530,7 +548,6 @@ def historical_pair_stats(df: pd.DataFrame, z_entry: float = 1.5, lookback: int 
             i = exit_i + 1
         else:
             i += 1
-
     if not trades:
         return {"trades": 0, "wins": 0, "win_rate": None, "avg_pnl_pct": None, "details": []}
     wins = sum(1 for t in trades if t["win"])
@@ -542,7 +559,7 @@ def historical_pair_stats(df: pd.DataFrame, z_entry: float = 1.5, lookback: int 
     }
 
 # LOAD LIVE SIGNALS
-excel_map, signal_status = load_live_signals(st.session_state["csv_url"])
+excel_map, signal_status = load_live_signals(st.session_state.get("csv_url", ""))
 ALL_PAIRS = merge_excel_lots(DEFAULT_PAIRS, excel_map)
 
 # HEADER
@@ -552,16 +569,13 @@ st.markdown('<p class="main-header">📈 Live Pair Trading Suite</p>', unsafe_al
 utc_now = datetime.now(timezone.utc)
 ist_now = utc_now + timedelta(hours=5, minutes=30)
 live_clock_ist = ist_now.strftime("%Y-%m-%d %H:%M:%S IST")
-
 live_clock_placeholder = st.empty()
 live_clock_placeholder.markdown(f'<p class="sub-header">Dual confirmation (Google Sheets / Excel + Independent) • Updated {live_clock_ist}</p>', unsafe_allow_html=True)
-
 st.caption(f"📂 Status: {signal_status}")
 
 # SCAN PAIRS
 pairs_to_scan = [p for p in ALL_PAIRS if p["sector"] in sector_filter]
 progress = st.progress(0, text="Fetching live market data...")
-
 results = []
 for i, pair in enumerate(pairs_to_scan):
     progress.progress((i + 1) / len(pairs_to_scan), text=f"Scanning {pair['name']}...")
@@ -571,12 +585,10 @@ for i, pair in enumerate(pairs_to_scan):
     prices = recommend_prices(metrics, signal)
     lots_info = recommend_cash_neutral_lots(metrics, pair["lot1"], pair["lot2"]) if metrics else {}
     hist_stats = historical_pair_stats(hist, z_entry=z_entry, lookback=lookback) if not hist.empty else {}
-
     results.append({
         "pair": pair, "metrics": metrics, "signal": signal, "prices": prices,
         "lots_info": lots_info, "hist_stats": hist_stats, "hist": hist
     })
-
 progress.empty()
 
 # 🎯 LIVE SIGNAL BOARD
@@ -587,7 +599,6 @@ for r in results:
     if not m: continue
     excel_info = p.get("excel", {})
     excel_act = excel_info.get("excel_action", "—")
-
     dual = "—"
     if "ENTER" in s["action"] and excel_act in ("BUY SIGNAL", "PAIR ENTRY"):
         dual = "✅ DUAL CONFIRM"
@@ -595,7 +606,6 @@ for r in results:
         dual = "⚡ Independent"
     elif excel_act in ("BUY SIGNAL", "PAIR ENTRY"):
         dual = "📋 Sheet Only"
-
     rows.append({
         "Pair": p["name"], "Sector": p["sector"],
         "Lot1": p["lot1"], "Lot2": p["lot2"],
@@ -606,10 +616,8 @@ for r in results:
         "Conf%": s["confidence"], "Sheet Signal": excel_act, "Dual Status": dual,
         "HalfLife": round(m["half_life"], 1) if not np.isnan(m.get("half_life", np.nan)) else "—",
     })
-
 if rows:
     df_signals = pd.DataFrame(rows)
-
     def color_rows(row):
         act = str(row["Action"]).upper()
         dual = str(row["Dual Status"])
@@ -623,7 +631,6 @@ if rows:
             return ["background-color: #C62828; color: #FFFFFF"] * len(row)
         else:
             return [""] * len(row)
-
     styled_df = df_signals.style.apply(color_rows, axis=1)
     st.dataframe(styled_df, use_container_width=True, height=520)
 
@@ -637,7 +644,6 @@ c5.metric("Avg |Z|", round(np.mean([abs(r["Z-Score"]) for r in rows]), 2) if row
 # 🧠 INDEPENDENT ANALYTICS - HIGH CONVICTION
 st.markdown("---")
 st.subheader("🧠 Independent Analytics — High-Conviction Entries")
-
 notes = []
 for r in results:
     if not r["metrics"]: continue
@@ -653,7 +659,6 @@ for r in results:
             f"Z={m['zscore']:.2f}, Corr30={m['corr_30']:.2f}. {s['reason']}{excel_tag}\n\n"
             f"&nbsp;&nbsp;&nbsp;*Deep rational:* {s.get('deep_reason', '')}"
         )
-
 if notes:
     for n in notes:
         st.markdown(f"- {n}")
@@ -663,10 +668,8 @@ else:
 # 🔍 PAIR DEEP-DIVE
 st.markdown("---")
 st.subheader("🔍 Pair Deep-Dive Analysis")
-
 selected = st.selectbox("Select Pair for Detailed Analysis", [r["pair"]["name"] for r in results if r["metrics"]])
 selected_res = next(r for r in results if r["pair"]["name"] == selected)
-
 m, s, pr, p = selected_res["metrics"], selected_res["signal"], selected_res["prices"], selected_res["pair"]
 lots = selected_res["lots_info"]
 hist_stats = selected_res["hist_stats"]
@@ -692,7 +695,6 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
 if s.get("deep_reason"):
     st.markdown("#### 🧠 Independent Deep Rational")
     st.info(s["deep_reason"])
@@ -749,7 +751,6 @@ if show_charts and HAS_PLOTLY and not selected_res["hist"].empty:
     hist = selected_res["hist"]
     norm1 = hist["price1"] / hist["price1"].iloc[0] * 100
     norm2 = hist["price2"] / hist["price2"].iloc[0] * 100
-
     fig = make_subplots(
         rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.08,
         subplot_titles=(
@@ -759,19 +760,15 @@ if show_charts and HAS_PLOTLY and not selected_res["hist"].empty:
         ),
         row_heights=[0.35, 0.35, 0.30]
     )
-
     fig.add_trace(go.Scatter(x=hist.index, y=norm1, name=p["s1"], line=dict(color="#00E5FF")), row=1, col=1)
     fig.add_trace(go.Scatter(x=hist.index, y=norm2, name=p["s2"], line=dict(color="#FF5252")), row=1, col=1)
-
     fig.add_trace(go.Scatter(x=m["ratio_series"].index, y=m["ratio_series"], name="Ratio", line=dict(color="#69F0AE")), row=2, col=1)
     fig.add_hline(y=m["ratio_mean"], line_dash="dash", line_color="#FFEA00", row=2, col=1)
     fig.add_hline(y=m["ratio_max_60"], line_dash="dot", line_color="#FF8A80", row=2, col=1)
     fig.add_hline(y=m["ratio_min_60"], line_dash="dot", line_color="#80D8FF", row=2, col=1)
-
     fig.add_trace(go.Scatter(x=m["zscore_series"].index, y=m["zscore_series"], name="Z-Score", line=dict(color="#E040FB")), row=3, col=1)
     fig.add_hline(y=z_entry, line_dash="dash", line_color="#FF5252", row=3, col=1)
     fig.add_hline(y=-z_entry, line_dash="dash", line_color="#00E676", row=3, col=1)
-
     fig.update_layout(
         height=680,
         template="plotly_dark",
@@ -797,7 +794,6 @@ if show_charts and HAS_PLOTLY and not selected_res["hist"].empty:
 st.markdown("---")
 st.subheader("📊 Historical Pair Performance (Simulated — Last ~12 Months)")
 st.caption("Simple back-test: enter when |Z| ≥ entry threshold, exit when |Z| ≤ 0.5 or after 30 trading days.")
-
 hist_rows = []
 for r in results:
     hs = r.get("hist_stats") or {}
@@ -806,7 +802,6 @@ for r in results:
             "Pair": r["pair"]["name"], "Opportunities": hs["trades"],
             "Wins": hs["wins"], "Win Rate %": hs["win_rate"], "Avg P&L %": hs["avg_pnl_pct"]
         })
-
 if hist_rows:
     st.dataframe(pd.DataFrame(hist_rows), use_container_width=True, hide_index=True)
     if hist_stats.get("details"):
