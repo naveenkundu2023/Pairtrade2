@@ -1,20 +1,19 @@
 """
-Pair Trading Dashboard - Streamlit App (Mobile Master v9 - Fixed B75 + Published Links)
+Pair Trading Dashboard - Streamlit App (Mobile Master v9 - JSONBin Persist)
 =========================================================
-- Supports both normal and published (2PACX) Google Sheets links
-- Mobile shows only green/red status
-- Desktop has full controls
-- Fixed settings on mobile: Z=1.5 / 0.5 / 60
+- Permanent storage via JSONBin (works on all devices)
+- Mobile: only green/red status + fixed settings (Z=1.5 / 0.5 / 60)
+- Desktop: full controls
 """
 import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timezone, timedelta
 import time
-import os
-import re
+import requests
 import warnings
 warnings.filterwarnings("ignore")
+
 try:
     import yfinance as yf
     HAS_YF = True
@@ -38,6 +37,11 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+# ==================== JSONBIN CONFIG ====================
+JSONBIN_BIN_ID = "6ad88032ac6210605a450ba5"
+JSONBIN_MASTER_KEY = "$2a$10$PV6.NiiOEcgZCXk1UdV4GexJxG1LNrSOt3.ewXwxF1nE8Wtu.z3He"
+JSONBIN_URL = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
 
 st.markdown("""
 <style>
@@ -66,14 +70,6 @@ st.markdown("""
     }
     [data-testid="stMetric"] label { color: #90CAF9 !important; font-size: 0.75rem !important; }
     [data-testid="stMetric"] [data-testid="stMetricValue"] { color: #FFFFFF !important; font-weight: 700; font-size: 1.2rem !important; }
-    
-    .ratio-box {
-        background: #1A1F2E; border: 1px solid #37474F; border-radius: 10px;
-        padding: 12px 14px; margin: 8px 0 16px 0; overflow-x: auto;
-    }
-    .ratio-box table { width: 100%; border-collapse: collapse; color: #E0E0E0; }
-    .ratio-box th { background: #263238; color: #80D8FF; padding: 6px 8px; text-align: center; font-size: 0.8rem; }
-    .ratio-box td { padding: 6px 8px; text-align: center; border-bottom: 1px solid #37474F; font-size: 0.85rem; }
     
     .js-plotly-plot, .plotly, .plot-container { touch-action: pan-y !important; }
     .stPlotlyChart { overflow: hidden !important; }
@@ -120,67 +116,37 @@ DEFAULT_PAIRS = [
     {"name": "ADANIENT-ADANIPORTS", "s1": "ADANIENT.NS", "s2": "ADANIPORTS.NS", "lot1": 300, "lot2": 1250, "sector": "Infrastructure", "excel_key": "ADANIENT"},
 ]
 
-def extract_sheet_id(url: str) -> str:
-    if not url:
-        return ""
-    # Normal edit link
-    m = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
-    if m:
-        return m.group(1)
-    # Published 2PACX link
-    m = re.search(r"/d/e/([a-zA-Z0-9-_]+)", url)
-    if m:
-        return m.group(1)
+# ==================== JSONBIN FUNCTIONS ====================
+@st.cache_data(ttl=15, show_spinner=False)
+def load_csv_url_from_jsonbin():
+    """Read the locked CSV URL from JSONBin."""
+    try:
+        headers = {"X-Master-Key": JSONBIN_MASTER_KEY}
+        resp = requests.get(f"{JSONBIN_URL}/latest", headers=headers, timeout=8)
+        if resp.status_code == 200:
+            data = resp.json()
+            record = data.get("record", {})
+            url = record.get("csv_url", "").strip()
+            return url
+    except Exception:
+        pass
     return ""
 
-@st.cache_data(ttl=20, show_spinner=False)
-def try_read_b75(csv_url: str) -> str:
-    """Try to read cell B75. Works better with normal Sheet IDs than published 2PACX links."""
-    if not csv_url:
-        return ""
-    sheet_id = extract_sheet_id(csv_url)
-    if not sheet_id:
-        return ""
-    
-    # Try several endpoints
-    candidates = [
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=SIGNAL&range=B75",
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid=0&range=B75",
-        f"https://docs.google.com/spreadsheets/d/e/{sheet_id}/pub?gid=0&single=true&output=csv&range=B75",
-    ]
-    for u in candidates:
-        try:
-            df = pd.read_csv(u, header=None)
-            if not df.empty:
-                val = str(df.iloc[0, 0]).strip()
-                if val.startswith("http"):
-                    return val
-        except Exception:
-            continue
-    return ""
+def save_csv_url_to_jsonbin(url: str) -> bool:
+    """Save / update the CSV URL in JSONBin."""
+    try:
+        headers = {
+            "Content-Type": "application/json",
+            "X-Master-Key": JSONBIN_MASTER_KEY
+        }
+        payload = {"csv_url": url.strip()}
+        resp = requests.put(JSONBIN_URL, json=payload, headers=headers, timeout=8)
+        return resp.status_code in (200, 201)
+    except Exception:
+        return False
 
-# ==================== LOAD URL (priority) ====================
-query_params = st.query_params
-url_from_query = query_params.get("csv_url", "").strip()
-
-if "csv_url" not in st.session_state:
-    st.session_state["csv_url"] = url_from_query
-
-# Try B75 first (if we have any URL to derive sheet from)
-source_for_b75 = st.session_state.get("csv_url") or url_from_query
-b75_url = try_read_b75(source_for_b75) if source_for_b75 else ""
-
-# Final decision
-if b75_url:
-    final_url = b75_url
-elif url_from_query:
-    final_url = url_from_query
-else:
-    final_url = st.session_state.get("csv_url", "")
-
-st.session_state["csv_url"] = final_url
-if final_url:
-    st.query_params["csv_url"] = final_url
+# ==================== LOAD LOCKED URL ====================
+locked_url = load_csv_url_from_jsonbin()
 
 # ==================== HEADER ====================
 st.markdown('<p class="main-header">📈 Live Pair Trading Suite</p>', unsafe_allow_html=True)
@@ -189,48 +155,44 @@ utc_now = datetime.now(timezone.utc)
 ist_now = utc_now + timedelta(hours=5, minutes=30)
 st.markdown(f'<p class="sub-header">Dual confirmation • {ist_now.strftime("%Y-%m-%d %H:%M:%S IST")}</p>', unsafe_allow_html=True)
 
-# ==================== STATUS (visible on ALL devices) ====================
-if final_url:
+# ==================== STATUS (visible everywhere) ====================
+if locked_url:
     st.success("✅ Google Sheet CSV  →  LOCKED & ACTIVE")
-    st.caption(final_url[:120] + ("..." if len(final_url) > 120 else ""))
+    st.caption(locked_url[:130] + ("..." if len(locked_url) > 130 else ""))
 else:
     st.error("❌ Google Sheet CSV  →  NOT LOCKED")
-    st.caption("On Desktop: paste the published CSV link → Save & Lock → also put the same link in cell B75 of SIGNAL sheet")
+    st.caption("Go to Desktop → paste CSV link → click Save & Lock")
 
-# ==================== DESKTOP CONTROLS (hidden on mobile) ====================
+# ==================== DESKTOP CONTROLS ====================
 st.markdown('<div class="desktop-controls">', unsafe_allow_html=True)
 
 with st.expander("⚙️ Desktop Controls", expanded=True):
-    st.markdown("#### Update Google Sheet CSV Link")
-    url_input = st.text_input("Published CSV URL", value=final_url)
+    st.markdown("#### Google Sheets CSV Link")
+    url_input = st.text_input("Published CSV URL", value=locked_url)
     
     c1, c2 = st.columns(2)
     with c1:
         if st.button("💾 Save & Lock", type="primary", use_container_width=True):
             clean = url_input.strip()
-            st.session_state["csv_url"] = clean
-            st.query_params["csv_url"] = clean
-            st.cache_data.clear()
-            st.rerun()
+            if clean:
+                success = save_csv_url_to_jsonbin(clean)
+                if success:
+                    st.cache_data.clear()
+                    st.success("Saved permanently! All devices will now see this link.")
+                    st.rerun()
+                else:
+                    st.error("Failed to save to JSONBin. Please try again.")
+            else:
+                st.warning("Please enter a valid URL")
     with c2:
-        if st.button("🗑️ Clear", use_container_width=True):
-            st.session_state["csv_url"] = ""
-            if "csv_url" in st.query_params:
-                del st.query_params["csv_url"]
+        if st.button("🗑️ Clear Lock", use_container_width=True):
+            save_csv_url_to_jsonbin("")
             st.cache_data.clear()
             st.rerun()
     
-    st.warning(
-        "**Important for Mobile to work:**\n\n"
-        "Because you are using a **published** link (2PACX), reading cell B75 is not always reliable.\n\n"
-        "**Best method right now:**\n"
-        "1. Click **Save & Lock** above\n"
-        "2. Copy the full browser URL (it should contain `?csv_url=...`)\n"
-        "3. On mobile, open that **full URL** (or bookmark it)\n\n"
-        "This is the most reliable free way across devices."
-    )
+    st.info("Once you click **Save & Lock**, the link is stored permanently. Every mobile and desktop will automatically load it.")
     
-    st.markdown("#### Parameters (Desktop)")
+    st.markdown("#### Parameters (Desktop only)")
     col1, col2, col3 = st.columns(3)
     with col1:
         z_entry = st.slider("Z Entry", 1.0, 3.0, 1.5, 0.1)
@@ -239,8 +201,11 @@ with st.expander("⚙️ Desktop Controls", expanded=True):
     with col3:
         lookback = st.selectbox("Lookback", [30, 60, 90], index=1)
     
-    sector_filter = st.multiselect("Sectors", sorted(set(p["sector"] for p in DEFAULT_PAIRS)),
-                                   default=sorted(set(p["sector"] for p in DEFAULT_PAIRS)))
+    sector_filter = st.multiselect(
+        "Sectors",
+        sorted(set(p["sector"] for p in DEFAULT_PAIRS)),
+        default=sorted(set(p["sector"] for p in DEFAULT_PAIRS))
+    )
     auto_refresh = st.checkbox("Auto-refresh 60s", value=False)
     show_charts = st.checkbox("Show charts", value=True)
     if st.button("🔄 Refresh Data", use_container_width=True):
@@ -249,7 +214,7 @@ with st.expander("⚙️ Desktop Controls", expanded=True):
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Force fixed values for mobile / safety
+# Fixed settings (especially for mobile)
 z_entry = 1.5
 z_exit = 0.5
 lookback = 60
@@ -281,7 +246,7 @@ def load_live_signals(csv_url: str = ""):
                 excel_action = "BUY SIGNAL" if "Buy" in excel_buy and "Do Not" not in excel_buy else "NEUTRAL"
                 excel_map[s1.upper()] = {
                     "lot1": lot1, "lot2": lot2, "s1": s1, "s2": s2,
-                    "excel_action": excel_action, "excel_buy_flag": excel_buy
+                    "excel_action": excel_action
                 }
             except Exception:
                 continue
@@ -299,8 +264,8 @@ def merge_excel_lots(pairs, excel_map):
         info = excel_map.get(key) or excel_map.get(key2)
         new_p = dict(p)
         if info:
-            if info.get("lot1",0) > 0: new_p["lot1"] = info["lot1"]
-            if info.get("lot2",0) > 0: new_p["lot2"] = info["lot2"]
+            if info.get("lot1", 0) > 0: new_p["lot1"] = info["lot1"]
+            if info.get("lot2", 0) > 0: new_p["lot2"] = info["lot2"]
             new_p["excel"] = info
         else:
             new_p["excel"] = {}
@@ -328,8 +293,8 @@ def compute_pair_metrics(df, lookback=60):
     ratio = df["price1"] / df["price2"]
     window = min(lookback, len(ratio)-1)
     zscore = (ratio - ratio.rolling(window).mean()) / ratio.rolling(window).std()
-    corr_30 = df["price1"].tail(30).corr(df["price2"].tail(30)) if len(df)>=30 else np.nan
-    corr_60 = df["price1"].tail(60).corr(df["price2"].tail(60)) if len(df)>=60 else np.nan
+    corr_30 = df["price1"].tail(30).corr(df["price2"].tail(30)) if len(df) >= 30 else np.nan
+    corr_60 = df["price1"].tail(60).corr(df["price2"].tail(60)) if len(df) >= 60 else np.nan
     r30, r60 = ratio.tail(30), ratio.tail(60)
     half_life = np.nan
     if HAS_SCIPY and len(ratio) > 30:
@@ -339,11 +304,12 @@ def compute_pair_metrics(df, lookback=60):
             lag = lag.loc[delta.index]
             slope = stats.linregress(lag, delta)[0]
             if slope < 0:
-                half_life = -np.log(2)/slope
+                half_life = -np.log(2) / slope
         except Exception:
             pass
     return {
-        "ratio": float(ratio.iloc[-1]), "zscore": float(zscore.iloc[-1]) if not np.isnan(zscore.iloc[-1]) else 0.0,
+        "ratio": float(ratio.iloc[-1]),
+        "zscore": float(zscore.iloc[-1]) if not np.isnan(zscore.iloc[-1]) else 0.0,
         "corr_30": corr_30, "corr_60": corr_60,
         "price1": float(df["price1"].iloc[-1]), "price2": float(df["price2"].iloc[-1]),
         "support1": float(df["price1"].tail(60).min()), "resist1": float(df["price1"].tail(60).max()),
@@ -357,146 +323,166 @@ def compute_pair_metrics(df, lookback=60):
 
 def generate_signal(metrics, z_entry=1.5, z_exit=0.5):
     if not metrics:
-        return {"action":"NO DATA","leg1":"—","leg2":"—","confidence":0,"reason":"No data","deep_reason":""}
+        return {"action": "NO DATA", "leg1": "—", "leg2": "—", "confidence": 0, "reason": "No data"}
     z = metrics["zscore"]
     corr = metrics.get("corr_30") or metrics.get("corr_60") or 0
     abs_z = abs(z)
     corr_ok = abs(corr) >= 0.5 if not np.isnan(corr) else False
     if abs_z >= z_entry and corr_ok:
         if z > 0:
-            return {"action":"ENTER PAIR","leg1":"SELL","leg2":"BUY","confidence":min(95,int(40+abs_z*15+abs(corr)*20)),
-                    "reason":f"Z +{z:.2f} stretched high","deep_reason":f"Ratio {abs_z:.1f} SD above mean. Corr {corr:.2f}."}
+            return {"action": "ENTER PAIR", "leg1": "SELL", "leg2": "BUY",
+                    "confidence": min(95, int(40 + abs_z*15 + abs(corr)*20)),
+                    "reason": f"Z +{z:.2f} stretched high"}
         else:
-            return {"action":"ENTER PAIR","leg1":"BUY","leg2":"SELL","confidence":min(95,int(40+abs_z*15+abs(corr)*20)),
-                    "reason":f"Z {z:.2f} stretched low","deep_reason":f"Ratio {abs_z:.1f} SD below mean. Corr {corr:.2f}."}
+            return {"action": "ENTER PAIR", "leg1": "BUY", "leg2": "SELL",
+                    "confidence": min(95, int(40 + abs_z*15 + abs(corr)*20)),
+                    "reason": f"Z {z:.2f} stretched low"}
     elif abs_z <= z_exit:
-        return {"action":"EXIT / HOLD","leg1":"CLOSE","leg2":"CLOSE","confidence":30,"reason":f"Z near mean ({z:.2f})","deep_reason":"Close to average."}
-    return {"action":"WATCH","leg1":"—","leg2":"—","confidence":20,"reason":f"Z {z:.2f} neutral","deep_reason":"Waiting for stretch."}
+        return {"action": "EXIT / HOLD", "leg1": "CLOSE", "leg2": "CLOSE", "confidence": 30,
+                "reason": f"Z near mean ({z:.2f})"}
+    return {"action": "WATCH", "leg1": "—", "leg2": "—", "confidence": 20,
+            "reason": f"Z {z:.2f} neutral"}
 
 def recommend_cash_neutral_lots(metrics, lot1, lot2):
-    if not metrics: return {}
+    if not metrics:
+        return {}
     p1, p2 = metrics["price1"], metrics["price2"]
-    v1, v2 = p1*lot1, p2*lot2
+    v1, v2 = p1 * lot1, p2 * lot2
     best = None
-    for n1 in range(1,6):
-        for n2 in range(1,6):
+    for n1 in range(1, 6):
+        for n2 in range(1, 6):
             pct = abs(n1*v1 - n2*v2) / max(n1*v1, n2*v2) * 100
             if best is None or pct < best["imbalance_pct"]:
-                best = {"lots1":n1,"lots2":n2,"shares1":n1*lot1,"shares2":n2*lot2,
-                        "imbalance":round(n1*v1-n2*v2,0),"imbalance_pct":round(pct,2)}
+                best = {"lots1": n1, "lots2": n2, "shares1": n1*lot1, "shares2": n2*lot2,
+                        "imbalance_pct": round(pct, 2)}
     return best
 
 def profit_potential(metrics, signal, lots):
-    if not metrics or not lots: return []
+    if not metrics or not lots:
+        return []
     p1, p2, cur_r = metrics["price1"], metrics["price2"], metrics["ratio"]
-    targets = [("Mean 60D",metrics["ratio_mean"]),("30D Avg",metrics["ratio_avg_30"]),
-               ("Halfway",(cur_r+metrics["ratio_mean"])/2),("30D Min",metrics["ratio_min_30"]),("30D Max",metrics["ratio_max_30"])]
-    sh1, sh2 = lots.get("shares1",0), lots.get("shares2",0)
-    if sh1==0: return []
+    targets = [("Mean 60D", metrics["ratio_mean"]), ("30D Avg", metrics["ratio_avg_30"]),
+               ("Halfway", (cur_r + metrics["ratio_mean"])/2),
+               ("30D Min", metrics["ratio_min_30"]), ("30D Max", metrics["ratio_max_30"])]
+    sh1, sh2 = lots.get("shares1", 0), lots.get("shares2", 0)
+    if sh1 == 0:
+        return []
     rows = []
-    direction = signal.get("leg1","")
+    direction = signal.get("leg1", "")
     for label, tgt in targets:
-        if tgt<=0 or cur_r<=0: continue
+        if tgt <= 0 or cur_r <= 0:
+            continue
         p1n = tgt * p2
         p2n = p1 / tgt
-        if direction=="SELL":
-            pnl = (sh1*(p1-p1n) + sh2*(p2n-p2))/2
-        elif direction=="BUY":
-            pnl = (sh1*(p1n-p1) + sh2*(p2-p2n))/2
+        if direction == "SELL":
+            pnl = (sh1*(p1 - p1n) + sh2*(p2n - p2)) / 2
+        elif direction == "BUY":
+            pnl = (sh1*(p1n - p1) + sh2*(p2 - p2n)) / 2
         else:
             pnl = 0
-        rows.append({"Target":label,"Ratio":round(tgt,4),"Move%":round(abs(tgt-cur_r)/cur_r*100,2),"P&L ₹":round(pnl,0)})
+        rows.append({"Target": label, "Ratio": round(tgt, 4),
+                     "Move%": round(abs(tgt - cur_r)/cur_r*100, 2), "P&L ₹": round(pnl, 0)})
     return rows
 
 def recommend_prices(metrics, signal):
-    if not metrics or signal["action"] != "ENTER PAIR": return {}
-    z, p1, p2, ratio, mean_r = metrics["zscore"], metrics["price1"], metrics["price2"], metrics["ratio"], metrics["ratio_mean"]
-    stop_r = metrics["ratio_max_60"]*1.02 if z>0 else metrics["ratio_min_60"]*0.98
-    if signal["leg1"]=="SELL":
-        return {"entry1":round(p1,2),"target1":round(p1*(mean_r/ratio)*0.98,2),"stop1":round(p1*(stop_r/ratio)*1.01,2),
-                "entry2":round(p2,2),"target2":round(p2*(ratio/mean_r)*1.02,2),"stop2":round(p2*(ratio/stop_r)*0.99,2)}
-    return {"entry1":round(p1,2),"target1":round(p1*(mean_r/ratio)*1.02,2),"stop1":round(p1*(stop_r/ratio)*0.99,2),
-            "entry2":round(p2,2),"target2":round(p2*(ratio/mean_r)*0.98,2),"stop2":round(p2*(ratio/stop_r)*1.01,2)}
+    if not metrics or signal["action"] != "ENTER PAIR":
+        return {}
+    z = metrics["zscore"]
+    p1, p2, ratio, mean_r = metrics["price1"], metrics["price2"], metrics["ratio"], metrics["ratio_mean"]
+    stop_r = metrics["ratio_max_60"]*1.02 if z > 0 else metrics["ratio_min_60"]*0.98
+    if signal["leg1"] == "SELL":
+        return {
+            "entry1": round(p1, 2), "target1": round(p1*(mean_r/ratio)*0.98, 2), "stop1": round(p1*(stop_r/ratio)*1.01, 2),
+            "entry2": round(p2, 2), "target2": round(p2*(ratio/mean_r)*1.02, 2), "stop2": round(p2*(ratio/stop_r)*0.99, 2)
+        }
+    return {
+        "entry1": round(p1, 2), "target1": round(p1*(mean_r/ratio)*1.02, 2), "stop1": round(p1*(stop_r/ratio)*0.99, 2),
+        "entry2": round(p2, 2), "target2": round(p2*(ratio/mean_r)*0.98, 2), "stop2": round(p2*(ratio/stop_r)*1.01, 2)
+    }
 
 # ==================== RUN ====================
-excel_map, signal_status = load_live_signals(final_url)
+excel_map, signal_status = load_live_signals(locked_url)
 ALL_PAIRS = merge_excel_lots(DEFAULT_PAIRS, excel_map)
 st.caption(f"📂 {signal_status}")
 
 pairs_to_scan = [p for p in ALL_PAIRS if p["sector"] in sector_filter]
-progress = st.progress(0, text="Scanning...")
+progress = st.progress(0, text="Scanning pairs...")
 results = []
 for i, pair in enumerate(pairs_to_scan):
-    progress.progress((i+1)/len(pairs_to_scan), text=f"{pair['name']}")
+    progress.progress((i+1)/len(pairs_to_scan), text=pair["name"])
     hist = fetch_pair_history(pair["s1"], pair["s2"])
     metrics = compute_pair_metrics(hist, lookback)
     signal = generate_signal(metrics, z_entry, z_exit)
     prices = recommend_prices(metrics, signal)
     lots = recommend_cash_neutral_lots(metrics, pair["lot1"], pair["lot2"]) if metrics else {}
-    results.append({"pair":pair,"metrics":metrics,"signal":signal,"prices":prices,"lots_info":lots,"hist":hist})
+    results.append({"pair": pair, "metrics": metrics, "signal": signal, "prices": prices, "lots_info": lots, "hist": hist})
 progress.empty()
 
-# SIGNAL BOARD
+# ==================== LIVE SIGNAL BOARD ====================
 st.subheader("🎯 Live Signal Board")
 rows = []
 for r in results:
     m, s, p = r["metrics"], r["signal"], r["pair"]
-    if not m: continue
-    excel_act = p.get("excel",{}).get("excel_action","—")
-    dual = "✅ DUAL CONFIRM" if "ENTER" in s["action"] and excel_act=="BUY SIGNAL" else \
+    if not m:
+        continue
+    excel_act = p.get("excel", {}).get("excel_action", "—")
+    dual = "✅ DUAL CONFIRM" if "ENTER" in s["action"] and excel_act == "BUY SIGNAL" else \
            "⚡ Independent" if "ENTER" in s["action"] else \
-           "📋 Sheet Only" if excel_act=="BUY SIGNAL" else "—"
+           "📋 Sheet Only" if excel_act == "BUY SIGNAL" else "—"
     rows.append({
-        "Pair":p["name"],"Sector":p["sector"],
-        "Price1":round(m["price1"],2),"Price2":round(m["price2"],2),
-        "Ratio":round(m["ratio"],4),"Z":round(m["zscore"],2),
-        "Corr":round(m["corr_30"],2) if not np.isnan(m["corr_30"]) else "—",
-        "Action":s["action"],"Leg1":s["leg1"],"Leg2":s["leg2"],
-        "Conf":s["confidence"],"Sheet":excel_act,"Dual":dual
+        "Pair": p["name"], "Sector": p["sector"],
+        "Price1": round(m["price1"], 2), "Price2": round(m["price2"], 2),
+        "Ratio": round(m["ratio"], 4), "Z": round(m["zscore"], 2),
+        "Corr": round(m["corr_30"], 2) if not np.isnan(m["corr_30"]) else "—",
+        "Action": s["action"], "Leg1": s["leg1"], "Leg2": s["leg2"],
+        "Conf": s["confidence"], "Sheet": excel_act, "Dual": dual
     })
 
 if rows:
     df = pd.DataFrame(rows)
-    df.index = range(1,len(df)+1)
+    df.index = range(1, len(df)+1)
     df.index.name = "#"
     def color(row):
         if "ENTER" in str(row["Action"]):
-            return ["background-color:#00C853;color:#000;font-weight:bold"]*len(row) if "DUAL" in str(row["Dual"]) else ["background-color:#2E7D32;color:#FFF;font-weight:bold"]*len(row)
+            if "DUAL" in str(row["Dual"]):
+                return ["background-color:#00C853;color:#000;font-weight:bold"] * len(row)
+            return ["background-color:#2E7D32;color:#FFF;font-weight:bold"] * len(row)
         if "EXIT" in str(row["Action"]):
-            return ["background-color:#C62828;color:#FFF"]*len(row)
-        return [""]*len(row)
+            return ["background-color:#C62828;color:#FFF"] * len(row)
+        return [""] * len(row)
     st.dataframe(df.style.apply(color, axis=1), use_container_width=True, height=500)
 
-c1,c2,c3,c4,c5 = st.columns(5)
+c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Pairs", len(rows))
 c2.metric("🟢 Enter", sum(1 for r in rows if "ENTER" in r["Action"]))
 c3.metric("✅ Dual", sum(1 for r in rows if "DUAL" in r["Dual"]))
 c4.metric("🟡 Watch", sum(1 for r in rows if "WATCH" in r["Action"]))
-c5.metric("Avg |Z|", round(np.mean([abs(r["Z"]) for r in rows]),2) if rows else 0)
+c5.metric("Avg |Z|", round(np.mean([abs(r["Z"]) for r in rows]), 2) if rows else 0)
 
 # HIGH CONVICTION
 st.markdown("---")
 st.subheader("🧠 High-Conviction Entries")
-notes = [f"**{r['pair']['name']}** — {r['signal']['action']} (conf {r['signal']['confidence']}%)  \n{r['signal']['reason']}" 
+notes = [f"**{r['pair']['name']}** — {r['signal']['action']} (conf {r['signal']['confidence']}%)  \n{r['signal']['reason']}"
          for r in results if r["metrics"] and "ENTER" in r["signal"]["action"]]
 if notes:
-    for n in notes: st.markdown(f"- {n}")
+    for n in notes:
+        st.markdown(f"- {n}")
 else:
     st.info("No high-conviction entries right now.")
 
 # DEEP DIVE
 st.markdown("---")
 st.subheader("🔍 Deep-Dive")
-sel = st.selectbox("Pair", [r["pair"]["name"] for r in results if r["metrics"]])
-res = next(r for r in results if r["pair"]["name"]==sel)
+sel = st.selectbox("Select Pair", [r["pair"]["name"] for r in results if r["metrics"]])
+res = next(r for r in results if r["pair"]["name"] == sel)
 m, s, pr, p, lots = res["metrics"], res["signal"], res["prices"], res["pair"], res["lots_info"]
 
-k1,k2,k3,k4,k5 = st.columns(5)
+k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Ratio", f"{m['ratio']:.4f}")
 k2.metric("Z-Score", f"{m['zscore']:.2f}")
-k3.metric("30D Corr", f"{m['corr_30']:.2f}" if not np.isnan(m['corr_30']) else "—")
-k4.metric("60D Corr", f"{m['corr_60']:.2f}" if not np.isnan(m['corr_60']) else "—")
-k5.metric("Half-Life", f"{m['half_life']:.1f}d" if not np.isnan(m.get('half_life',np.nan)) else "—")
+k3.metric("30D Corr", f"{m['corr_30']:.2f}" if not np.isnan(m["corr_30"]) else "—")
+k4.metric("60D Corr", f"{m['corr_60']:.2f}" if not np.isnan(m["corr_60"]) else "—")
+k5.metric("Half-Life", f"{m['half_life']:.1f}d" if not np.isnan(m.get("half_life", np.nan)) else "—")
 
 bg = "#1B5E20" if "ENTER" in s["action"] else ("#F9A825" if "WATCH" in s["action"] else "#37474F")
 st.markdown(f"""
@@ -519,20 +505,20 @@ if pr:
 
 if show_charts and HAS_PLOTLY and not res["hist"].empty:
     hist = res["hist"]
-    norm1 = hist["price1"]/hist["price1"].iloc[0]*100
-    norm2 = hist["price2"]/hist["price2"].iloc[0]*100
-    fig = make_subplots(rows=3,cols=1,shared_xaxes=True,vertical_spacing=0.07,
-                        subplot_titles=("Normalized","Ratio","Z-Score"),row_heights=[0.34,0.33,0.33])
-    fig.add_trace(go.Scatter(x=hist.index,y=norm1,name=p["s1"],line=dict(color="#00E5FF")),row=1,col=1)
-    fig.add_trace(go.Scatter(x=hist.index,y=norm2,name=p["s2"],line=dict(color="#FF5252")),row=1,col=1)
-    fig.add_trace(go.Scatter(x=m["ratio_series"].index,y=m["ratio_series"],name="Ratio",line=dict(color="#69F0AE")),row=2,col=1)
-    fig.add_hline(y=m["ratio_mean"],line_dash="dash",line_color="#FFEA00",row=2,col=1)
-    fig.add_trace(go.Scatter(x=m["zscore_series"].index,y=m["zscore_series"],name="Z",line=dict(color="#E040FB")),row=3,col=1)
-    fig.add_hline(y=z_entry,line_dash="dash",line_color="#FF5252",row=3,col=1)
-    fig.add_hline(y=-z_entry,line_dash="dash",line_color="#00E676",row=3,col=1)
-    fig.update_layout(height=620,template="plotly_dark",paper_bgcolor="#0E1117",plot_bgcolor="#1A1F2E",
-                      showlegend=True,margin=dict(l=20,r=10,t=30,b=20),dragmode=False)
-    st.plotly_chart(fig, use_container_width=True, config={"scrollZoom":False,"displayModeBar":False,"responsive":True})
+    norm1 = hist["price1"] / hist["price1"].iloc[0] * 100
+    norm2 = hist["price2"] / hist["price2"].iloc[0] * 100
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.07,
+                        subplot_titles=("Normalized", "Ratio", "Z-Score"), row_heights=[0.34, 0.33, 0.33])
+    fig.add_trace(go.Scatter(x=hist.index, y=norm1, name=p["s1"], line=dict(color="#00E5FF")), row=1, col=1)
+    fig.add_trace(go.Scatter(x=hist.index, y=norm2, name=p["s2"], line=dict(color="#FF5252")), row=1, col=1)
+    fig.add_trace(go.Scatter(x=m["ratio_series"].index, y=m["ratio_series"], name="Ratio", line=dict(color="#69F0AE")), row=2, col=1)
+    fig.add_hline(y=m["ratio_mean"], line_dash="dash", line_color="#FFEA00", row=2, col=1)
+    fig.add_trace(go.Scatter(x=m["zscore_series"].index, y=m["zscore_series"], name="Z", line=dict(color="#E040FB")), row=3, col=1)
+    fig.add_hline(y=z_entry, line_dash="dash", line_color="#FF5252", row=3, col=1)
+    fig.add_hline(y=-z_entry, line_dash="dash", line_color="#00E676", row=3, col=1)
+    fig.update_layout(height=620, template="plotly_dark", paper_bgcolor="#0E1117", plot_bgcolor="#1A1F2E",
+                      showlegend=True, margin=dict(l=20, r=10, t=30, b=20), dragmode=False)
+    st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": False, "displayModeBar": False, "responsive": True})
 
 if auto_refresh:
     time.sleep(60)
