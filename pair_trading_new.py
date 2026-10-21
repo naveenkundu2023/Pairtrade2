@@ -174,7 +174,7 @@ st.markdown(f'<p class="sub-header">Dual confirmation • {ist_now.strftime("%Y-
 # ==================== STATUS (only thing visible on mobile) ====================
 if locked_url:
     st.success("✅ Google Sheet CSV  →  LOCKED & ACTIVE")
-    st.caption(locked_url[:120] + ("..." if len(locked_url) > 120 else ""))
+    
 else:
     st.error("❌ Google Sheet CSV  →  NOT LOCKED")
 
